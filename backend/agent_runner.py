@@ -59,16 +59,23 @@ class AgentRunner:
                 user_data_dir="/tmp/jh-nodriver",
                 browser_args=["--disable-blink-features=AutomationControlled","--no-first-run"])
             s._tab = s._browser.main_tab
-            await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(5)
+            await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(8)
 
             cur = s._tab.target.url or ""
-            if "/user/" in cur or "login" in cur.lower():
+            # 必须确认当前页面既不包含 login 也不包含 user 才算已登录
+            if "/user/" in cur or "login" in cur.lower() or "passport" in cur.lower():
                 await sse_manager.emit_status(AppStatus.RUNNING, {"message":"请扫码登录"})
                 for _ in range(180):
                     if s._stop: return; await asyncio.sleep(2)
                     cur = s._tab.target.url or ""
-                    if "/user/" not in cur and "login" not in cur.lower(): break
+                    # 确认跳到职位列表页才算登录成功
+                    if "/geek/job" in cur and "login" not in cur.lower() and "/user/" not in cur:
+                        await s._tab.sleep(3)  # 再等 3 秒让页面完全加载
+                        break
                 else: await sse_manager.emit_error("登录超时"); return
+
+            # 扫码后多等一会让 cookie 完全生效
+            await s._tab.sleep(5)
 
             # === 标签评分 ===
             all_scored = []
@@ -100,44 +107,51 @@ class AgentRunner:
                             continue
                         si = j.get("securityId","")
                         all_scored.append((score, co, po, jd, kw, city["name"], m, si))
-                    await asyncio.sleep(random.uniform(5,8))
+                        # 每 15 个岗位保活一次，防 Chrome 闲置超时
+                        if len(all_scored) % 15 == 0:
+                            try: await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(2)
+                            except: pass
+                    await asyncio.sleep(random.uniform(2,3))
                 if s._stop: break
 
             all_scored.sort(key=lambda x: x[0], reverse=True)
             print(f"[Agent] 标签评分完成，共 {len(all_scored)} 个候选", flush=True)
 
-            # === 详情重评 top 20 ===
+            # === 详情重评 top 30（比最终多 10 个缓冲） ===
             if all_scored and not s._stop:
-                top20 = all_scored[:20]
+                topN = all_scored[:30]
                 enriched = []
-                print(f"[Agent] 获取 top 20 详情 JD 重新评分...", flush=True)
-                for idx, (score, co, po, jd, kw, city_name, m, si) in enumerate(top20):
+                print(f"[Agent] 获取 top 30 详情 JD 重新评分...", flush=True)
+                for idx, (score, co, po, jd, kw, city_name, m, si) in enumerate(topN):
                     if s._stop: break
                     real_jd = await s._fetch_jd_detail(si) if si else ""
                     if real_jd and len(real_jd) > 100:
                         try:
                             new_m = await asyncio.wait_for(ds_match(s._resume, real_jd[:3000]), timeout=8.0)
                             new_score = new_m["score"]
-                            print(f"[Detail] {idx+1}/20 {co}/{po} 标签{score}→真实{new_score} JD:{len(real_jd)}字", flush=True)
+                            print(f"[Detail] {idx+1}/30 {co}/{po} 标签{score}→真实{new_score} JD:{len(real_jd)}字", flush=True)
                             enriched.append((new_score, co, po, real_jd, kw, city_name, new_m))
                         except Exception:
                             enriched.append((score, co, po, jd, kw, city_name, m))
                     else:
                         enriched.append((score, co, po, jd, kw, city_name, m))
-                    await asyncio.sleep(random.uniform(5,8))
-                enriched.extend([(sc, c, p, j, k, cn, mm) for sc, c, p, j, k, cn, mm, _ in all_scored[20:]])
+                    await asyncio.sleep(random.uniform(3,4))
+                enriched.extend([(sc, c, p, j, k, cn, mm) for sc, c, p, j, k, cn, mm, _ in all_scored[30:]])
                 enriched.sort(key=lambda x: x[0], reverse=True)
                 print(f"[Agent] 详情重评完成，共 {len(enriched)} 个候选", flush=True)
             else:
                 enriched = all_scored
 
-            # === 最终分层 ===
+            # === 最终分层：优先取详情重评过的（JD>200字），不足再用标签评分的 ===
             high_quota = cfg.matching.tiers["high"].count
             med_quota  = cfg.matching.tiers["medium"].count
             try_quota  = cfg.matching.tiers["try"].count
+            max_total  = high_quota + med_quota + try_quota
             applied = 0
 
-            for score, co, po, jd, kw, city_name, m in enriched:
+            # 第一遍取 JD>200 字的（详情重评过的）
+            detail_rich = [x for x in enriched if len(x[3]) > 200]
+            for score, co, po, jd, kw, city_name, m in detail_rich:
                 if s._stop or applied >= high_quota + med_quota + try_quota: break
                 if co in s._ac or record_manager.is_company_recent(co): continue
                 if applied < high_quota:          tier = "high"
@@ -155,6 +169,28 @@ class AgentRunner:
                     reason=m["reason"], tier=tier, status="dry_run")
                 await sse_manager.emit_record(rec)
                 await asyncio.sleep(random.uniform(5,8))
+
+            # 第二遍：JD 不够的不够补足名额
+            if applied < max_total:
+                label_scored = [x for x in enriched if len(x[3]) <= 200]
+                for score, co, po, jd, kw, city_name, m in label_scored:
+                    if s._stop or applied >= max_total: break
+                    if co in s._ac or record_manager.is_company_recent(co): continue
+                    if applied < high_quota:          tier = "high"
+                    elif applied < high_quota + med_quota: tier = "medium"
+                    else:                              tier = "try"
+                    s._ac.add(co)
+                    try:
+                        greet = await asyncio.wait_for(gen_greeting(jd[:1500], s._resume), timeout=5.0)
+                    except Exception:
+                        greet = "您好，我对这个职位很感兴趣，希望能进一步了解。"
+                    print(f"[Agent] 干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字", flush=True)
+                    s._tc[tier] = s._tc.get(tier,0) + 1
+                    applied += 1
+                    rec = record_manager.add_record(company=co, position=po, score=score,
+                        reason=m["reason"], tier=tier, status="dry_run")
+                    await sse_manager.emit_record(rec)
+                    await asyncio.sleep(random.uniform(3,5))
 
             await sse_manager.emit_complete({
                 "total_applied": applied,
@@ -195,7 +231,7 @@ class AgentRunner:
                 if len(jl) < 30: break
             except Exception as e:
                 print(f"[API] {city_name}/{kw} 失败: {e}", flush=True); break
-            await asyncio.sleep(random.uniform(3,5))
+            await asyncio.sleep(random.uniform(1,2))
         return all_jobs
 
     async def _fetch_jd_detail(s, security_id):
