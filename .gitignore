@@ -41,6 +41,10 @@ resume*.html
 resume*.md
 resume*.txt
 
+# ============ 本地笔记/调试工具（不公开） ============
+notes/
+tools/
+
 # ============ Playwright ============
 playwright-report/
 test-results/
