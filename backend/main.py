@@ -188,8 +188,8 @@ async def test_pipeline():
     # Step 2: 生成搜索方向
     t0 = time.time()
     try:
-        from .search_generator import search_generator
-        directions = search_generator.generate(resume_text)
+        from .search_generator import generate as sg_gen
+        directions = await sg_gen(resume_text)
         results["steps"].append({
             "step": "搜索词生成",
             "ok": True,
@@ -203,14 +203,14 @@ async def test_pipeline():
     # Step 3: JD 匹配打分（用一段示例 JD）
     t0 = time.time()
     try:
-        from .matcher import matcher
+        from .matcher import match as ds_match
         sample_jd = (
             "职位：AI应用开发工程师。"
             "要求：精通Python，有LLM应用开发经验，熟悉LangChain、向量数据库。"
             "加分项：全栈能力、有跨行业项目经验。"
             "薪资：20K-35K，工作地点：北京。"
         )
-        match_result = matcher.match(resume_text, sample_jd)
+        match_result = await ds_match(resume_text, sample_jd)
         results["steps"].append({
             "step": "JD匹配打分",
             "ok": True,
