@@ -4,7 +4,7 @@
       <div class="app-container">
         <header class="top-bar">
           <div class="top-bar-left">
-            <h1 class="logo">JobHunter <span class="version">v1.0</span></h1>
+            <h1 class="logo">Orchestra <span class="version">v1.0</span></h1>
           </div>
           <div class="top-bar-right">
             <n-tag :type="statusTagType" :bordered="false" size="large">

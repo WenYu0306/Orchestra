@@ -1,4 +1,4 @@
-# JobHunter v1.0
+# Orchestra v1.0
 
 AI Agent — 在 BOSS 直聘上自动搜索职位、获取完整 JD、DeepSeek 评分、分层排序、生成招呼语。
 

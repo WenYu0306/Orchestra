@@ -1,5 +1,5 @@
 """
-JobHunter Backend —— FastAPI 入口。
+Orchestra Backend —— FastAPI 入口。
 
 启动方式（在项目根目录执行）：
     python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 5000
@@ -51,9 +51,9 @@ async def lifespan(app: FastAPI):
 config = get_config()
 
 app = FastAPI(
-    title="JobHunter API",
+    title="Orchestra API",
     version="1.0.0",
-    description="智能求职 Agent —— 自动搜索、评估、投递 BOSS 直聘职位",
+    description="Orchestra — AI Agent 编排框架，BOSS 直聘智能求职应用",
     lifespan=lifespan,
 )
 
@@ -237,7 +237,7 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "JobHunter"}
+    return {"status": "ok", "service": "Orchestra"}
 
 
 # ============ 直接运行 ============

@@ -95,7 +95,7 @@ def get_project_root() -> Path:
     """获取项目根目录（config.yaml 所在目录）"""
     global _project_root
     if _project_root is None:
-        # 从当前文件向上找两级：backend/config_loader.py → job-hunter/
+        # 从当前文件向上找两级：backend/config_loader.py → orchestra/
         _project_root = Path(__file__).resolve().parent.parent
     return _project_root
 
