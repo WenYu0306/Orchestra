@@ -42,7 +42,7 @@ class AgentRunner:
         try:
             s._resume = s._read_resume()
             cfg = get_config()
-            BOSS_CODE = {"北京":"101010100","长春":"101190100"}
+            BOSS_CODE = {"北京":"101010100","长春":"101060100"}
             cities = cfg.search.get("cities",[])
             keywords = list(cfg.search.get("primary_keywords",[]))
             try:
@@ -90,7 +90,8 @@ class AgentRunner:
                         po = j.get("jobName","")
                         if not co: continue
                         parts = [po, j.get("salaryDesc",""), j.get("cityName",""),
-                                 j.get("jobExperience",""), j.get("jobDegree","")]
+                                 j.get("jobExperience",""), j.get("jobDegree",""),
+                                 j.get("brandIndustry",""), j.get("brandScaleName","")]
                         for k in ("jobLabels","skills","welfareList"):
                             v = j.get(k,[]); parts.extend(v) if isinstance(v,list) else None
                         jd = " ".join(str(p) for p in parts if p)
