@@ -8,7 +8,7 @@ from .greeting_generator import generate as gen_greeting
 from .matcher import match as ds_match
 from .record_manager import record_manager
 from .sse_manager import sse_manager, AppStatus
-from .validator import check_city, check_salary, check_score_concentration
+from .validator import check_city, check_salary, check_company, check_jd_quality, check_score_concentration, HealthTracker
 
 
 class AgentRunner:
@@ -81,20 +81,25 @@ class AgentRunner:
             all_scored = []
             city_warnings = set()
             salary_skipped = 0
+            tracker = HealthTracker()
             for city in cities:
                 cc = BOSS_CODE.get(city["name"], "101010100")
                 min_sal = city.get("min_salary", 0)
                 for kw in keywords:
                     if s._stop: break
                     jobs = await s._fetch(kw, cc, city["name"])
+                    tracker.track_fetch(len(jobs) > 0)
                     if not jobs: continue
                     for j in jobs:
                         if s._stop: break
                         co = j.get("brandName","") or j.get("brandName","")
                         po = j.get("jobName","")
                         if not co: continue
-                        # ---- 校验层（独立模块，不污染评分逻辑） ----
+                        # ---- 校验层 ----
                         ok, warn = check_city(j, city["name"])
+                        if warn: city_warnings.add(warn)
+                        ok, warn = check_company(j)
+                        tracker.track_job(not warn)
                         if warn: city_warnings.add(warn)
                         ok, warn = check_salary(j, min_sal)
                         if not ok: salary_skipped += 1; continue
@@ -106,6 +111,8 @@ class AgentRunner:
                             v = j.get(k,[]); parts.extend(v) if isinstance(v,list) else None
                         jd = " ".join(str(p) for p in parts if p)
                         if len(jd) < 10: continue
+                        ok, warn = check_jd_quality(jd)
+                        if warn: city_warnings.add(warn)
                         await sse_manager.emit_status(AppStatus.RUNNING, {"message":f"评估:{co}"})
                         try:
                             m = await asyncio.wait_for(ds_match(s._resume, jd[:3000]), timeout=8.0)
@@ -129,6 +136,8 @@ class AgentRunner:
                 print(f"⚠️  {w}", flush=True)
             if salary_skipped:
                 print(f"💰 薪资过滤: {salary_skipped} 个岗位", flush=True)
+            for w in tracker.fetch_warnings() + tracker.company_warnings():
+                print(f"⚠️  {w}", flush=True)
             warn = check_score_concentration([s for s,_,_,_,_,_,_,_ in all_scored])
             if warn:
                 print(f"⚠️  {warn}", flush=True)
@@ -142,6 +151,7 @@ class AgentRunner:
                 for idx, (score, co, po, jd, kw, city_name, m, si) in enumerate(topN):
                     if s._stop: break
                     real_jd = await s._fetch_jd_detail(si) if si else ""
+                    tracker.track_detail(bool(real_jd))
                     if real_jd and len(real_jd) > 100:
                         try:
                             new_m = await asyncio.wait_for(ds_match(s._resume, real_jd[:3000]), timeout=8.0)
@@ -155,6 +165,8 @@ class AgentRunner:
                     await asyncio.sleep(random.uniform(3,4))
                 enriched.extend([(sc, c, p, j, k, cn, mm) for sc, c, p, j, k, cn, mm, _ in all_scored[30:]])
                 enriched.sort(key=lambda x: x[0], reverse=True)
+                for w in tracker.detail_warnings():
+                    print(f"⚠️  {w}", flush=True)
                 print(f"[Agent] 详情重评完成，共 {len(enriched)} 个候选", flush=True)
             else:
                 enriched = all_scored
