@@ -94,6 +94,7 @@ const runningMsg = ref('就绪')
 const jobs = ref([])
 const notif = ref(null)
 let sse = null
+let sseRetry = 0
 
 const statusTagType = computed(() =>
   ({idle:'default',running:'success',completed:'info',error:'error'}[status.value]||'default'))
@@ -143,7 +144,9 @@ function connectSSE() {
   })
   sse.onerror = () => {
     if (status.value === 'idle' || status.value === 'completed' || status.value === 'error') return
-    setTimeout(connectSSE, 5000)
+    sseRetry++
+    if (sseRetry > 10) { notif.value = {type:'error', title:'连接中断', msg:'后端已断开，请手动重启'} }
+    else setTimeout(connectSSE, 5000)
   }
 }
 

@@ -1,10 +1,9 @@
 """
-Agent — 单阶段: 搜→标签评分→全局排序→top 20 详情重评→最终分层。
-稳定优先，每次API调用间隔3-8秒。
+Agent — 单阶段: 搜→标签评分→全局排序→top 30 详情重评→最终分层。
 """
-import asyncio, json, os, random, re, traceback
+import asyncio, json, random, traceback
 import fitz, nodriver as uc
-from .config_loader import get_config, get_api_key, get_llm_base_url, get_project_root
+from .config_loader import get_config, get_project_root
 from .greeting_generator import generate as gen_greeting
 from .matcher import match as ds_match
 from .record_manager import record_manager
