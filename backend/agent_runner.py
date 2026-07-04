@@ -8,6 +8,7 @@ from .greeting_generator import generate as gen_greeting
 from .matcher import match as ds_match
 from .record_manager import record_manager
 from .sse_manager import sse_manager, AppStatus
+from .validator import check_city, check_salary, check_score_concentration
 
 
 class AgentRunner:
@@ -78,8 +79,11 @@ class AgentRunner:
 
             # === 标签评分 ===
             all_scored = []
+            city_warnings = set()
+            salary_skipped = 0
             for city in cities:
                 cc = BOSS_CODE.get(city["name"], "101010100")
+                min_sal = city.get("min_salary", 0)
                 for kw in keywords:
                     if s._stop: break
                     jobs = await s._fetch(kw, cc, city["name"])
@@ -89,6 +93,12 @@ class AgentRunner:
                         co = j.get("brandName","") or j.get("brandName","")
                         po = j.get("jobName","")
                         if not co: continue
+                        # ---- 校验层（独立模块，不污染评分逻辑） ----
+                        ok, warn = check_city(j, city["name"])
+                        if warn: city_warnings.add(warn)
+                        ok, warn = check_salary(j, min_sal)
+                        if not ok: salary_skipped += 1; continue
+                        # ----
                         parts = [po, j.get("salaryDesc",""), j.get("cityName",""),
                                  j.get("jobExperience",""), j.get("jobDegree",""),
                                  j.get("brandIndustry",""), j.get("brandScaleName","")]
@@ -115,6 +125,13 @@ class AgentRunner:
                 if s._stop: break
 
             all_scored.sort(key=lambda x: x[0], reverse=True)
+            for w in city_warnings:
+                print(f"⚠️  {w}", flush=True)
+            if salary_skipped:
+                print(f"💰 薪资过滤: {salary_skipped} 个岗位", flush=True)
+            warn = check_score_concentration([s for s,_,_,_,_,_,_,_ in all_scored])
+            if warn:
+                print(f"⚠️  {warn}", flush=True)
             print(f"[Agent] 标签评分完成，共 {len(all_scored)} 个候选", flush=True)
 
             # === 详情重评 top 30（比最终多 10 个缓冲） ===
