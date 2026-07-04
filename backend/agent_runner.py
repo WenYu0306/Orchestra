@@ -78,11 +78,8 @@ class AgentRunner:
 
             # === 标签评分 ===
             all_scored = []
-            anomaly_city = 0  # 城市不匹配计数
-            anomaly_salary = 0  # 薪资过滤计数
             for city in cities:
                 cc = BOSS_CODE.get(city["name"], "101010100")
-                min_sal = city.get("min_salary", 0)
                 for kw in keywords:
                     if s._stop: break
                     jobs = await s._fetch(kw, cc, city["name"])
@@ -92,19 +89,7 @@ class AgentRunner:
                         co = j.get("brandName","") or j.get("brandName","")
                         po = j.get("jobName","")
                         if not co: continue
-                        # 数据校验：城市是否匹配
-                        actual_city = j.get("cityName","")
-                        if actual_city and actual_city not in city["name"]:
-                            anomaly_city += 1
-                        # 薪资硬过滤
-                        sd = j.get("salaryDesc","")
-                        if min_sal > 0 and sd:
-                            try:
-                                low_str = sd.replace("K","000").replace("k","000").split("-")[0].strip()
-                                low_val = int(low_str)
-                                if low_val < min_sal: anomaly_salary += 1; continue
-                            except Exception: pass
-                        parts = [po, sd, actual_city,
+                        parts = [po, j.get("salaryDesc",""), j.get("cityName",""),
                                  j.get("jobExperience",""), j.get("jobDegree",""),
                                  j.get("brandIndustry",""), j.get("brandScaleName","")]
                         for k in ("jobLabels","skills","welfareList"):
@@ -131,15 +116,6 @@ class AgentRunner:
 
             all_scored.sort(key=lambda x: x[0], reverse=True)
             print(f"[Agent] 标签评分完成，共 {len(all_scored)} 个候选", flush=True)
-            if anomaly_city:
-                print(f"⚠️  城市不匹配: {anomaly_city} 个岗位", flush=True)
-            if anomaly_salary:
-                print(f"💰 薪资过滤: {anomaly_salary} 个岗位", flush=True)
-            # 分数集中度告警
-            if all_scored:
-                top_scores = [s for s,_,_,_,_,_,_,_ in all_scored[:10]]
-                if len(set(top_scores)) <= 2:
-                    print(f"⚠️  top 10 分数集中在 {len(set(top_scores))} 个值，可能区分度不足", flush=True)
 
             # === 详情重评 top 30（比最终多 10 个缓冲） ===
             if all_scored and not s._stop:
