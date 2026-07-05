@@ -1,18 +1,28 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TopBar from './components/TopBar.vue'
+import ProgressBand from './components/ProgressBand.vue'
 import StatCards from './components/StatCards.vue'
 import JobList from './components/JobList.vue'
+import BottomBar from './components/BottomBar.vue'
 
 const status = ref('idle')
 const runningMsg = ref('就绪')
 const jobs = ref([])
+const progress = ref(0)
+const step = ref('等待启动')
+const stepMeta = ref('点击「开始」运行 Agent')
+const elapsedSec = ref(0)
 const notif = ref(null)
 let sse = null
 let sseRetry = 0
+let timer = null
 
 const matched = computed(() => jobs.value.length)
 const tierCount = t => jobs.value.filter(j => j.tier === t).length
+const elapsed = computed(() => fmt(elapsedSec.value))
+const remaining = computed(() => fmt(Math.max(0, 720 - elapsedSec.value)))
+function fmt(s) { const m = Math.floor(s/60).toString().padStart(2,'0'); const ss = (s%60).toString().padStart(2,'0'); return `${m}:${ss}` }
 
 function connectSSE() {
   sse = new EventSource('/api/events')
@@ -20,6 +30,8 @@ function connectSSE() {
     const d = JSON.parse(e.data)
     status.value = d.status
     if (d.message) runningMsg.value = d.message
+    step.value = d.message || step.value
+    stepMeta.value = `已匹配 ${matched.value} 个`
   })
   sse.addEventListener('record', e => {
     const d = JSON.parse(e.data)
@@ -36,11 +48,18 @@ function connectSSE() {
       status: d.status || 'dry_run',
     })
     status.value = 'running'
+    progress.value = Math.min((matched.value / 500) * 100, 95)
+    step.value = `正在评估「${d.company || '?'} · ${d.position || '?'}」`
+    stepMeta.value = `已匹配 ${matched.value} 个 · DeepSeek 打分中`
   })
   sse.addEventListener('complete', e => {
     const d = JSON.parse(e.data)
     if (d.jobs && d.jobs.length) jobs.value = d.jobs
     status.value = 'completed'
+    progress.value = 100
+    step.value = '已完成全部评估'
+    stepMeta.value = `共 ${d.total_applied || jobs.value.length} 个匹配`
+    if (timer) { clearInterval(timer); timer = null }
   })
   sse.addEventListener('error', e => {
     const d = JSON.parse(e.data)
@@ -60,25 +79,39 @@ async function fetchStatus() {
 }
 
 async function handleStart() {
+  jobs.value = []
+  progress.value = 0; elapsedSec.value = 0
+  step.value = '正在初始化...'; stepMeta.value = '启动浏览器'
+  if (timer) clearInterval(timer)
+  timer = setInterval(() => { elapsedSec.value++ }, 1000)
   try { await fetch('/api/start', { method: 'POST' }) }
   catch (e) { notif.value = { type: 'error', text: '启动失败: ' + (e.message || e) } }
 }
 
 async function handleStop() {
+  if (timer) { clearInterval(timer); timer = null }
+  progress.value = 0; step.value = '已停止'; stepMeta.value = '等待重新启动'
   try { await fetch('/api/stop', { method: 'POST' }) }
   catch (e) {}
 }
 
-onMounted(() => { import('./style.css'); fetchStatus(); connectSSE() })
-onUnmounted(() => { if (sse) sse.close() })
+const scale = ref(1)
+function updateScale() {
+  scale.value = Math.max(900 / 1440, Math.min(window.innerWidth / 1440, 1.4))
+}
+onMounted(() => { import('./style.css'); fetchStatus(); connectSSE(); updateScale(); window.addEventListener('resize', updateScale) })
+onUnmounted(() => { if (sse) sse.close(); window.removeEventListener('resize', updateScale) })
 </script>
 
 <template>
   <div class="aurora"><div class="aurora-blob"></div></div>
-  <div class="shell">
-    <TopBar :status="status" :matched="matched" @start="handleStart" @stop="handleStop" />
-    <StatCards :jobs="jobs" />
-    <JobList :jobs="jobs" :loading="status === 'running'" />
+  <div class="scaler" :style="{ transform: `scale(${scale})` }">
+    <div class="shell">
+      <TopBar :status="status" :matched="matched" @start="handleStart" @stop="handleStop" />
+      <ProgressBand :progress="progress" :step="step" :step-meta="stepMeta" :elapsed="elapsed" :remaining="remaining" />
+      <StatCards :jobs="jobs" />
+      <JobList :jobs="jobs" :loading="status === 'running'" />
+      <BottomBar :matched="matched" :delivered="matched" />
     <Transition name="banner">
       <div v-if="notif" class="banner" :class="notif.type">
         <span class="banner-dot"></span>
@@ -86,17 +119,24 @@ onUnmounted(() => { if (sse) sse.close() })
         <button class="banner-close" @click="notif = null">×</button>
       </div>
     </Transition>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.scaler {
+  transform-origin: top center;
+  width: 1440px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+}
 .shell {
-  position: relative; z-index: 1;
-  min-height: 100vh; max-width: 1100px; margin: 0 auto;
-  padding-top: 20px;
+  min-height: 100vh;
   background: linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 30%, var(--bg-2) 100%);
   display: flex; flex-direction: column;
 }
+.shell > :deep(.job-list) { flex: 1; }
 .banner {
   position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%);
   display: flex; align-items: center; gap: 12px;

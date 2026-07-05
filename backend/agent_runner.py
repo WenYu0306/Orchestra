@@ -1,9 +1,10 @@
 """
-Agent — 单阶段: 搜→标签评分→全局排序→top 30 详情重评→最终分层。
+Agent — 单阶段: 搜→标签评分→全局排序→top 20 详情重评→最终分层。
+稳定优先，每次API调用间隔3-8秒。
 """
-import asyncio, json, os, random, traceback
+import asyncio, json, os, random, re, traceback
 import fitz, nodriver as uc
-from .config_loader import get_config, get_project_root
+from .config_loader import get_config, get_api_key, get_llm_base_url, get_project_root
 from .greeting_generator import generate as gen_greeting
 from .matcher import match as ds_match
 from .record_manager import record_manager
@@ -43,7 +44,7 @@ class AgentRunner:
         try:
             s._resume = s._read_resume()
             cfg = get_config()
-            cfg = get_config()
+            BOSS_CODE = {"北京":"101010100","长春":"101060100"}
             cities = cfg.search.get("cities",[])
             keywords = list(cfg.search.get("primary_keywords",[]))
             try:
@@ -54,13 +55,9 @@ class AgentRunner:
             except: pass
 
             await sse_manager.emit_status(AppStatus.RUNNING, {"message":"启动浏览器..."})
-            # 自动清除 Chrome profile 残留锁，防 "Failed to connect" 错误
-            for lock in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
-                try: os.unlink(os.path.join("/tmp/jh-nodriver", lock))
-                except: pass
             s._browser = await uc.start(headless=False,
                 browser_executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                user_data_dir="/tmp/jh-nodriver",
+                user_data_dir="/tmp/jh-fresh",
                 browser_args=["--disable-blink-features=AutomationControlled","--no-first-run"])
             s._tab = s._browser.main_tab
             await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(8)
@@ -81,9 +78,6 @@ class AgentRunner:
             # 扫码后多等一会让 cookie 完全生效
             await s._tab.sleep(5)
 
-            # 动态获取城市编码
-            BOSS_CODE = await s._fetch_city_codes(cities)
-
             # === 标签评分 ===
             all_scored = []
             city_warnings = set()
@@ -100,17 +94,14 @@ class AgentRunner:
                         co = j.get("brandName","") or j.get("brandName","")
                         po = j.get("jobName","")
                         if not co: continue
-                        # ---- 校验层 ----
                         ok, warn = check_city(j, city["name"])
                         if warn: city_warnings.add(warn)
                         ok, warn = check_company(j)
                         if warn: city_warnings.add(warn)
                         ok, warn = check_salary(j, min_sal)
                         if not ok: salary_skipped += 1; continue
-                        # ----
                         parts = [po, j.get("salaryDesc",""), j.get("cityName",""),
-                                 j.get("jobExperience",""), j.get("jobDegree",""),
-                                 j.get("brandIndustry",""), j.get("brandScaleName","")]
+                                 j.get("jobExperience",""), j.get("jobDegree","")]
                         for k in ("jobLabels","skills","welfareList"):
                             v = j.get(k,[]); parts.extend(v) if isinstance(v,list) else None
                         jd = " ".join(str(p) for p in parts if p)
@@ -128,8 +119,7 @@ class AgentRunner:
                             record_manager.add_pending(co, po, score, m["reason"], "低置信度")
                             continue
                         si = j.get("securityId","")
-                        eid = j.get("encryptJobId","")
-                        all_scored.append((score, co, po, jd, kw, city["name"], m, si, eid))
+                        all_scored.append((score, co, po, jd, kw, city["name"], m, si))
                         # 每 15 个岗位保活一次，防 Chrome 闲置超时
                         if len(all_scored) % 15 == 0:
                             try: await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(2)
@@ -149,7 +139,7 @@ class AgentRunner:
                 topN = all_scored[:30]
                 enriched = []
                 print(f"[Agent] 获取 top 30 详情 JD 重新评分...", flush=True)
-                for idx, (score, co, po, jd, kw, city_name, m, si, eid) in enumerate(topN):
+                for idx, (score, co, po, jd, kw, city_name, m, si) in enumerate(topN):
                     if s._stop: break
                     real_jd = await s._fetch_jd_detail(si) if si else ""
                     if real_jd and len(real_jd) > 100:
@@ -157,13 +147,13 @@ class AgentRunner:
                             new_m = await asyncio.wait_for(ds_match(s._resume, real_jd[:3000]), timeout=8.0)
                             new_score = new_m["score"]
                             print(f"[Detail] {idx+1}/30 {co}/{po} 标签{score}→真实{new_score} JD:{len(real_jd)}字", flush=True)
-                            enriched.append((new_score, co, po, real_jd, kw, city_name, new_m, eid))
+                            enriched.append((new_score, co, po, real_jd, kw, city_name, new_m))
                         except Exception:
-                            enriched.append((score, co, po, jd, kw, city_name, m, eid))
+                            enriched.append((score, co, po, jd, kw, city_name, m))
                     else:
-                        enriched.append((score, co, po, jd, kw, city_name, m, eid))
+                        enriched.append((score, co, po, jd, kw, city_name, m))
                     await asyncio.sleep(random.uniform(3,4))
-                enriched.extend([(sc, c, p, j, k, cn, mm, e) for sc, c, p, j, k, cn, mm, _, e in all_scored[30:]])
+                enriched.extend([(sc, c, p, j, k, cn, mm) for sc, c, p, j, k, cn, mm, _ in all_scored[30:]])
                 enriched.sort(key=lambda x: x[0], reverse=True)
                 print(f"[Agent] 详情重评完成，共 {len(enriched)} 个候选", flush=True)
             else:
@@ -177,10 +167,8 @@ class AgentRunner:
             applied = 0
 
             # 第一遍取 JD>200 字的（详情重评过的）
-            apply_limit = int(os.environ.get("APPLY_LIMIT", "0"))
-            apply_count = 0
             detail_rich = [x for x in enriched if len(x[3]) > 200]
-            for score, co, po, jd, kw, city_name, m, eid in detail_rich:
+            for score, co, po, jd, kw, city_name, m in detail_rich:
                 if s._stop or applied >= high_quota + med_quota + try_quota: break
                 if co in s._ac or record_manager.is_company_recent(co): continue
                 if applied < high_quota:          tier = "high"
@@ -191,31 +179,18 @@ class AgentRunner:
                     greet = await asyncio.wait_for(gen_greeting(jd[:1500], s._resume), timeout=5.0)
                 except Exception:
                     greet = "您好，我对这个职位很感兴趣，希望能进一步了解。"
-                send_status = "dry_run"
-                if apply_limit > 0 and apply_count < apply_limit and eid:
-                    if apply_count == 0:
-                        print(f"⏳ 10秒后将发送招呼语到 {co}，按 Ctrl+C 取消...", flush=True)
-                        await asyncio.sleep(10)
-                    send_ok = await s._try_send_greeting(co, eid, greet)
-                    if send_ok:
-                        send_status = "success"
-                        apply_count += 1
-                        print(f"[Agent] 真发: {tier}/{co}/{po}({score}分) ✅", flush=True)
-                    else:
-                        print(f"[Agent] 真发失败: {co}, 回退干跑", flush=True)
-                else:
-                    print(f"[Agent] 干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字", flush=True)
+                print(f"[Agent] 干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字", flush=True)
                 s._tc[tier] = s._tc.get(tier,0) + 1
                 applied += 1
                 rec = record_manager.add_record(company=co, position=po, score=score,
-                    reason=m["reason"], tier=tier, status=send_status)
+                    reason=m["reason"], tier=tier, status="dry_run")
                 await sse_manager.emit_record(rec)
                 await asyncio.sleep(random.uniform(5,8))
 
             # 第二遍：JD 不够的不够补足名额
             if applied < max_total:
                 label_scored = [x for x in enriched if len(x[3]) <= 200]
-                for score, co, po, jd, kw, city_name, m, eid in label_scored:
+                for score, co, po, jd, kw, city_name, m in label_scored:
                     if s._stop or applied >= max_total: break
                     if co in s._ac or record_manager.is_company_recent(co): continue
                     if applied < high_quota:          tier = "high"
@@ -249,30 +224,6 @@ class AgentRunner:
                 try: s._browser.stop()
                 except: pass
 
-    async def _fetch_city_codes(s, cities: list) -> dict:
-        """从 BOSS 城市 API 动态获取城市编码，fallback 到已知编码"""
-        try:
-            await s._tab.get("https://www.zhipin.com/wapi/zpCommon/data/city.json")
-            await s._tab.sleep(3)
-            raw = await s._tab.evaluate("document.body.innerText")
-            data = json.loads(raw)
-            result = {}
-            for prov in data.get("zpData", {}).get("cityList", []):
-                for city in prov.get("subLevelModelList", []):
-                    name = city.get("name", "")
-                    for c in cities:
-                        if c["name"] in name:
-                            result[c["name"]] = city["code"]
-            # 验证所有期望城市都找到了
-            for c in cities:
-                target = c["name"]
-                if target not in result:
-                    print(f"⚠️  城市 '{target}' 未在 BOSS API 中找到编码，使用已知值", flush=True)
-            return result if result else {"北京": "101010100", "长春": "101060100"}
-        except Exception:
-            print("⚠️  城市编码获取失败，使用已知编码", flush=True)
-            return {"北京": "101010100", "长春": "101060100"}
-
     async def _fetch(s, kw, city_code, city_name, pages=1):
         from urllib.parse import quote
         await sse_manager.emit_status(AppStatus.RUNNING, {"message":f"搜索:{city_name}/{kw}"})
@@ -299,55 +250,6 @@ class AgentRunner:
                 print(f"[API] {city_name}/{kw} 失败: {e}", flush=True); break
             await asyncio.sleep(random.uniform(1,2))
         return all_jobs
-
-    async def _try_send_greeting(s, co: str, encrypt_id: str, greeting: str) -> bool:
-        """导航到职位详情页, 尝试点击"立即沟通"并发送招呼语。成功返回 True。"""
-        try:
-            url = f"https://www.zhipin.com/job_detail/{encrypt_id}.html"
-            await s._tab.get(url)
-            await s._tab.sleep(4)
-            # 找"立即沟通"按钮 (BOSS 常用选择器)
-            clicked = await s._tab.evaluate("""
-                (() => {
-                    const btn = document.querySelector('.btn-chat, .chat-btn, [class*=\"chat\"], [class*=\"communication\"], .op-btn');
-                    if (btn) { btn.click(); return true; }
-                    // fallback: 找含"沟通"或"聊一聊"的按钮
-                    const all = document.querySelectorAll('button, a, span, div');
-                    for (const el of all) {
-                        const t = el.textContent;
-                        if ((t.includes('沟通') || t.includes('聊一聊') || t.includes('立即')) && t.length < 20) {
-                            el.click(); return true;
-                        }
-                    }
-                    return false;
-                })()
-            """)
-            if not clicked:
-                print(f"[Send] {co} 未找到沟通按钮", flush=True)
-                return False
-            await s._tab.sleep(2)
-            # 在聊天框 textarea 里输入招呼语并发送
-            sent = await s._tab.evaluate(f"""
-                (() => {{
-                    const ta = document.querySelector('textarea, [contenteditable=\"true\"], .chat-input input');
-                    if (!ta) return 'no_textarea';
-                    if (ta.tagName === 'TEXTAREA' || ta.tagName === 'INPUT') {{
-                        ta.value = {json.dumps(greeting)};
-                        ta.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    }} else {{
-                        ta.textContent = {json.dumps(greeting)};
-                        ta.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    }}
-                    ta.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', code: 'Enter', bubbles: true}}));
-                    return 'ok';
-                }})()
-            """)
-            if sent != 'ok':
-                print(f"[Send] {co} 聊天框状态: {sent}", flush=True)
-                return False
-            print(f"[Send] {co} 招呼语已发送 ✅", flush=True)
-        except Exception:
-            return False
 
     async def _fetch_jd_detail(s, security_id):
         try:
