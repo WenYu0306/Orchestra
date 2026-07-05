@@ -121,6 +121,9 @@ class AgentRunner:
                         except asyncio.TimeoutError: continue
                         score = m["score"]
                         if score < 40: continue
+                        if m.get("is_fake_job"):
+                            city_warnings.add(f"🚨 虚假招聘跳过: {co} · {po}")
+                            continue
                         if m["confidence"] == "low":
                             record_manager.add_pending(co, po, score, m["reason"], "低置信度")
                             continue
