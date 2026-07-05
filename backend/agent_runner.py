@@ -43,7 +43,7 @@ class AgentRunner:
         try:
             s._resume = s._read_resume()
             cfg = get_config()
-            BOSS_CODE = {"北京":"101010100","长春":"101060100"}
+            cfg = get_config()
             cities = cfg.search.get("cities",[])
             keywords = list(cfg.search.get("primary_keywords",[]))
             try:
@@ -76,6 +76,9 @@ class AgentRunner:
 
             # 扫码后多等一会让 cookie 完全生效
             await s._tab.sleep(5)
+
+            # 动态获取城市编码
+            BOSS_CODE = await s._fetch_city_codes(cities)
 
             # === 标签评分 ===
             all_scored = []
@@ -222,6 +225,30 @@ class AgentRunner:
             if s._browser:
                 try: s._browser.stop()
                 except: pass
+
+    async def _fetch_city_codes(s, cities: list) -> dict:
+        """从 BOSS 城市 API 动态获取城市编码，fallback 到已知编码"""
+        try:
+            await s._tab.get("https://www.zhipin.com/wapi/zpCommon/data/city.json")
+            await s._tab.sleep(3)
+            raw = await s._tab.evaluate("document.body.innerText")
+            data = json.loads(raw)
+            result = {}
+            for prov in data.get("zpData", {}).get("cityList", []):
+                for city in prov.get("subLevelModelList", []):
+                    name = city.get("name", "")
+                    for c in cities:
+                        if c["name"] in name:
+                            result[c["name"]] = city["code"]
+            # 验证所有期望城市都找到了
+            for c in cities:
+                target = c["name"]
+                if target not in result:
+                    print(f"⚠️  城市 '{target}' 未在 BOSS API 中找到编码，使用已知值", flush=True)
+            return result if result else {"北京": "101010100", "长春": "101060100"}
+        except Exception:
+            print("⚠️  城市编码获取失败，使用已知编码", flush=True)
+            return {"北京": "101010100", "长春": "101060100"}
 
     async def _fetch(s, kw, city_code, city_name, pages=1):
         from urllib.parse import quote
