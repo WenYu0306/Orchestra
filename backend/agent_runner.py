@@ -54,6 +54,10 @@ class AgentRunner:
             except: pass
 
             await sse_manager.emit_status(AppStatus.RUNNING, {"message":"启动浏览器..."})
+            # 自动清除 Chrome profile 残留锁，防 "Failed to connect" 错误
+            for lock in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+                try: os.unlink(os.path.join("/tmp/jh-nodriver", lock))
+                except: pass
             s._browser = await uc.start(headless=False,
                 browser_executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                 user_data_dir="/tmp/jh-nodriver",
@@ -189,7 +193,7 @@ class AgentRunner:
                     if apply_count == 0:
                         print(f"⏳ 10秒后将发送招呼语到 {co}，按 Ctrl+C 取消...", flush=True)
                         await asyncio.sleep(10)
-                    send_ok = await s._try_send_greeting(eid, greet)
+                    send_ok = await s._try_send_greeting(co, eid, greet)
                     if send_ok:
                         send_status = "success"
                         apply_count += 1
@@ -293,7 +297,7 @@ class AgentRunner:
             await asyncio.sleep(random.uniform(1,2))
         return all_jobs
 
-    async def _try_send_greeting(s, encrypt_id: str, greeting: str) -> bool:
+    async def _try_send_greeting(s, co: str, encrypt_id: str, greeting: str) -> bool:
         """导航到职位详情页, 尝试点击"立即沟通"并发送招呼语。成功返回 True。"""
         try:
             url = f"https://www.zhipin.com/job_detail/{encrypt_id}.html"
@@ -316,13 +320,14 @@ class AgentRunner:
                 })()
             """)
             if not clicked:
+                print(f"[Send] {co} 未找到沟通按钮", flush=True)
                 return False
             await s._tab.sleep(2)
             # 在聊天框 textarea 里输入招呼语并发送
             sent = await s._tab.evaluate(f"""
                 (() => {{
                     const ta = document.querySelector('textarea, [contenteditable=\"true\"], .chat-input input');
-                    if (!ta) return false;
+                    if (!ta) return 'no_textarea';
                     if (ta.tagName === 'TEXTAREA' || ta.tagName === 'INPUT') {{
                         ta.value = {json.dumps(greeting)};
                         ta.dispatchEvent(new Event('input', {{bubbles: true}}));
@@ -330,12 +335,14 @@ class AgentRunner:
                         ta.textContent = {json.dumps(greeting)};
                         ta.dispatchEvent(new Event('input', {{bubbles: true}}));
                     }}
-                    // 按 Enter 发送
                     ta.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', code: 'Enter', bubbles: true}}));
-                    return true;
+                    return 'ok';
                 }})()
             """)
-            return bool(sent)
+            if sent != 'ok':
+                print(f"[Send] {co} 聊天框状态: {sent}", flush=True)
+                return False
+            print(f"[Send] {co} 招呼语已发送 ✅", flush=True)
         except Exception:
             return False
 
