@@ -63,15 +63,14 @@ class AgentRunner:
             await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(8)
 
             cur = s._tab.target.url or ""
-            # 必须确认当前页面既不包含 login 也不包含 user 才算已登录
-            if "/user/" in cur or "login" in cur.lower() or "passport" in cur.lower():
+            # 登录检测：URL含login/user/passport 或 不在/geek/job → 统一当未登录
+            if "/user/" in cur or "login" in cur.lower() or "passport" in cur.lower() or "/geek/job" not in cur:
                 await sse_manager.emit_status(AppStatus.RUNNING, {"message":"请扫码登录"})
                 for _ in range(180):
                     if s._stop: return; await asyncio.sleep(2)
                     cur = s._tab.target.url or ""
-                    # 确认跳到职位列表页才算登录成功
-                    if "/geek/job" in cur and "login" not in cur.lower() and "/user/" not in cur:
-                        await s._tab.sleep(3)  # 再等 3 秒让页面完全加载
+                    if "/geek/job" in cur and "login" not in cur.lower() and "/user/" not in cur and "passport" not in cur.lower():
+                        await s._tab.sleep(3)
                         break
                 else: await sse_manager.emit_error("登录超时"); return
 
