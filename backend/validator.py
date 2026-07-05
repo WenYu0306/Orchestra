@@ -22,7 +22,13 @@ def check_salary(job: dict, min_salary: int) -> tuple[bool, str]:
         return True, ""
     try:
         low_str = sd.replace("K", "000").replace("k", "000").split("-")[0].strip()
+        # 去掉 BOSS 自定义字体编码的特殊字符
+        low_str = re.sub(r'[^\d]', '', low_str)
+        if not low_str: return True, ""
         low_val = int(low_str)
+        # BOSS 的 K 单位——数字 < 100 说明没带 K 字但实际是千
+        if low_val < 100:
+            low_val *= 1000
         if low_val < min_salary:
             return False, f"薪资过滤: {sd}"
     except (ValueError, IndexError):
