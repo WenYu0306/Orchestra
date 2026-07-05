@@ -58,5 +58,5 @@ def test_check_company_question_mark():
     assert ok and warn
 
 def test_check_company_too_long():
-    ok, warn = check_company({"brandName": "参与公司产品的研发，技术方案的规划和落地"})
+    ok, warn = check_company({"brandName": "这是一个超过三十个字符的非常长的公司名称用来测试校验逻辑是否正确触发告警机制请勿删"})
     assert ok and warn

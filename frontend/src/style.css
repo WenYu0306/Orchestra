@@ -1,0 +1,78 @@
+/* ===== 设计变量（Ardot 设计系统） ===== */
+:root {
+  --bg-1: #F7F5FA;
+  --bg-2: #F7F8FA;
+  --text-1: #1E293B;
+  --text-2: #64748B;
+  --text-3: #94A3B8;
+  --text-4: #CBD5E1;
+  --indigo: #6366F1;
+  --indigo-dark: #4F46E5;
+  --indigo-soft: rgba(99, 102, 241, 0.10);
+  --indigo-border: rgba(99, 102, 241, 0.30);
+  --blue: #3B82F6;
+  --blue-soft: rgba(59, 130, 246, 0.10);
+  --blue-border: rgba(59, 130, 246, 0.30);
+  --amber: #F59E0B;
+  --amber-soft: rgba(245, 158, 11, 0.10);
+  --amber-border: rgba(245, 158, 11, 0.30);
+  --green: #10B981;
+  --green-dark: #059669;
+  --green-soft: rgba(16, 185, 129, 0.08);
+  --green-border: rgba(16, 185, 129, 0.25);
+  --red: #EF4444;
+  --border: #E2E8F0;
+  --border-soft: rgba(255, 255, 255, 0.55);
+  --panel-bg: rgba(255, 255, 255, 0.55);
+  --card-bg: rgba(255, 255, 255, 0.70);
+  --card-bg-hover: rgba(255, 255, 255, 0.96);
+  --font-cn: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-en: 'Geist', 'Inter', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  font-family: var(--font-cn);
+  color: var(--text-1);
+  background: var(--bg-2);
+  -webkit-font-smoothing: antialiased;
+  min-width: 900px;
+}
+
+#app { min-height: 100vh; }
+
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.25); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.4); }
+
+/* Aurora 背景光晕 */
+.aurora { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.aurora::before, .aurora::after, .aurora-blob {
+  content: ''; position: absolute; border-radius: 999px; filter: blur(8px);
+}
+.aurora::before {
+  width: 700px; height: 500px; left: -120px; top: -80px;
+  background: radial-gradient(circle, rgba(216, 180, 254, 0.75) 0%, rgba(216, 180, 254, 0) 70%);
+}
+.aurora::after {
+  width: 600px; height: 450px; right: -60px; top: -60px;
+  background: radial-gradient(circle, rgba(165, 243, 252, 0.65) 0%, rgba(165, 243, 252, 0) 70%);
+}
+.aurora-blob {
+  width: 700px; height: 600px; right: 100px; top: 400px;
+  background: radial-gradient(circle, rgba(233, 213, 255, 0.55) 0%, rgba(233, 213, 255, 0) 70%);
+}
+
+/* 玻璃面板 */
+.glass {
+  background: var(--panel-bg);
+  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border-soft);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 8px 32px rgba(0,0,0,0.06);
+}
