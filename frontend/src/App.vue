@@ -93,6 +93,7 @@ onUnmounted(() => { if (sse) sse.close() })
 .shell {
   position: relative; z-index: 1;
   min-height: 100vh; max-width: 1100px; margin: 0 auto;
+  padding-top: 20px;
   background: linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 30%, var(--bg-2) 100%);
   display: flex; flex-direction: column;
 }

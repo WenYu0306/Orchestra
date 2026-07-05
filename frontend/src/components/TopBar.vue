@@ -47,7 +47,7 @@ const isRunning = computed(() => props.status === 'running')
 </template>
 
 <style scoped>
-.top-bar { height:63px; display:flex; align-items:center; gap:20px; padding:0 32px; border-radius:0; border-left:none; border-right:none; border-top:none; }
+.top-bar { height:72px; display:flex; align-items:center; gap:20px; padding:0 32px; border-radius:14px; border-left:1px solid var(--border-soft); border-right:1px solid var(--border-soft); margin:0 32px; }
 .logo-wrap { display:flex; align-items:center; gap:12px; filter:drop-shadow(0 0 20px rgba(99,102,241,0.08)); }
 .logo-mark { position:relative; width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg,#A78BFA 0%,#7DD3FC 100%); }
 .logo-mark .bar { position:absolute; width:2.5px; background:#fff; border-radius:1px; }
