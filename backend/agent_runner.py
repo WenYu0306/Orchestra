@@ -1,7 +1,7 @@
 """
 Agent — 单阶段: 搜→标签评分→全局排序→top 30 详情重评→最终分层。
 """
-import asyncio, json, random, traceback
+import asyncio, json, os, random, traceback
 import fitz, nodriver as uc
 from .config_loader import get_config, get_project_root
 from .greeting_generator import generate as gen_greeting
@@ -121,7 +121,8 @@ class AgentRunner:
                             record_manager.add_pending(co, po, score, m["reason"], "低置信度")
                             continue
                         si = j.get("securityId","")
-                        all_scored.append((score, co, po, jd, kw, city["name"], m, si))
+                        eid = j.get("encryptJobId","")
+                        all_scored.append((score, co, po, jd, kw, city["name"], m, si, eid))
                         # 每 15 个岗位保活一次，防 Chrome 闲置超时
                         if len(all_scored) % 15 == 0:
                             try: await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(2)
@@ -141,7 +142,7 @@ class AgentRunner:
                 topN = all_scored[:30]
                 enriched = []
                 print(f"[Agent] 获取 top 30 详情 JD 重新评分...", flush=True)
-                for idx, (score, co, po, jd, kw, city_name, m, si) in enumerate(topN):
+                for idx, (score, co, po, jd, kw, city_name, m, si, eid) in enumerate(topN):
                     if s._stop: break
                     real_jd = await s._fetch_jd_detail(si) if si else ""
                     if real_jd and len(real_jd) > 100:
@@ -149,13 +150,13 @@ class AgentRunner:
                             new_m = await asyncio.wait_for(ds_match(s._resume, real_jd[:3000]), timeout=8.0)
                             new_score = new_m["score"]
                             print(f"[Detail] {idx+1}/30 {co}/{po} 标签{score}→真实{new_score} JD:{len(real_jd)}字", flush=True)
-                            enriched.append((new_score, co, po, real_jd, kw, city_name, new_m))
+                            enriched.append((new_score, co, po, real_jd, kw, city_name, new_m, eid))
                         except Exception:
-                            enriched.append((score, co, po, jd, kw, city_name, m))
+                            enriched.append((score, co, po, jd, kw, city_name, m, eid))
                     else:
-                        enriched.append((score, co, po, jd, kw, city_name, m))
+                        enriched.append((score, co, po, jd, kw, city_name, m, eid))
                     await asyncio.sleep(random.uniform(3,4))
-                enriched.extend([(sc, c, p, j, k, cn, mm) for sc, c, p, j, k, cn, mm, _ in all_scored[30:]])
+                enriched.extend([(sc, c, p, j, k, cn, mm, e) for sc, c, p, j, k, cn, mm, _, e in all_scored[30:]])
                 enriched.sort(key=lambda x: x[0], reverse=True)
                 print(f"[Agent] 详情重评完成，共 {len(enriched)} 个候选", flush=True)
             else:
@@ -169,8 +170,10 @@ class AgentRunner:
             applied = 0
 
             # 第一遍取 JD>200 字的（详情重评过的）
+            apply_limit = int(os.environ.get("APPLY_LIMIT", "0"))
+            apply_count = 0
             detail_rich = [x for x in enriched if len(x[3]) > 200]
-            for score, co, po, jd, kw, city_name, m in detail_rich:
+            for score, co, po, jd, kw, city_name, m, eid in detail_rich:
                 if s._stop or applied >= high_quota + med_quota + try_quota: break
                 if co in s._ac or record_manager.is_company_recent(co): continue
                 if applied < high_quota:          tier = "high"
@@ -181,18 +184,31 @@ class AgentRunner:
                     greet = await asyncio.wait_for(gen_greeting(jd[:1500], s._resume), timeout=5.0)
                 except Exception:
                     greet = "您好，我对这个职位很感兴趣，希望能进一步了解。"
-                print(f"[Agent] 干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字", flush=True)
+                send_status = "dry_run"
+                if apply_limit > 0 and apply_count < apply_limit and eid:
+                    if apply_count == 0:
+                        print(f"⏳ 10秒后将发送招呼语到 {co}，按 Ctrl+C 取消...", flush=True)
+                        await asyncio.sleep(10)
+                    send_ok = await s._try_send_greeting(eid, greet)
+                    if send_ok:
+                        send_status = "success"
+                        apply_count += 1
+                        print(f"[Agent] 真发: {tier}/{co}/{po}({score}分) ✅", flush=True)
+                    else:
+                        print(f"[Agent] 真发失败: {co}, 回退干跑", flush=True)
+                else:
+                    print(f"[Agent] 干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字", flush=True)
                 s._tc[tier] = s._tc.get(tier,0) + 1
                 applied += 1
                 rec = record_manager.add_record(company=co, position=po, score=score,
-                    reason=m["reason"], tier=tier, status="dry_run")
+                    reason=m["reason"], tier=tier, status=send_status)
                 await sse_manager.emit_record(rec)
                 await asyncio.sleep(random.uniform(5,8))
 
             # 第二遍：JD 不够的不够补足名额
             if applied < max_total:
                 label_scored = [x for x in enriched if len(x[3]) <= 200]
-                for score, co, po, jd, kw, city_name, m in label_scored:
+                for score, co, po, jd, kw, city_name, m, eid in label_scored:
                     if s._stop or applied >= max_total: break
                     if co in s._ac or record_manager.is_company_recent(co): continue
                     if applied < high_quota:          tier = "high"
@@ -276,6 +292,52 @@ class AgentRunner:
                 print(f"[API] {city_name}/{kw} 失败: {e}", flush=True); break
             await asyncio.sleep(random.uniform(1,2))
         return all_jobs
+
+    async def _try_send_greeting(s, encrypt_id: str, greeting: str) -> bool:
+        """导航到职位详情页, 尝试点击"立即沟通"并发送招呼语。成功返回 True。"""
+        try:
+            url = f"https://www.zhipin.com/job_detail/{encrypt_id}.html"
+            await s._tab.get(url)
+            await s._tab.sleep(4)
+            # 找"立即沟通"按钮 (BOSS 常用选择器)
+            clicked = await s._tab.evaluate("""
+                (() => {
+                    const btn = document.querySelector('.btn-chat, .chat-btn, [class*=\"chat\"], [class*=\"communication\"], .op-btn');
+                    if (btn) { btn.click(); return true; }
+                    // fallback: 找含"沟通"或"聊一聊"的按钮
+                    const all = document.querySelectorAll('button, a, span, div');
+                    for (const el of all) {
+                        const t = el.textContent;
+                        if ((t.includes('沟通') || t.includes('聊一聊') || t.includes('立即')) && t.length < 20) {
+                            el.click(); return true;
+                        }
+                    }
+                    return false;
+                })()
+            """)
+            if not clicked:
+                return False
+            await s._tab.sleep(2)
+            # 在聊天框 textarea 里输入招呼语并发送
+            sent = await s._tab.evaluate(f"""
+                (() => {{
+                    const ta = document.querySelector('textarea, [contenteditable=\"true\"], .chat-input input');
+                    if (!ta) return false;
+                    if (ta.tagName === 'TEXTAREA' || ta.tagName === 'INPUT') {{
+                        ta.value = {json.dumps(greeting)};
+                        ta.dispatchEvent(new Event('input', {{bubbles: true}}));
+                    }} else {{
+                        ta.textContent = {json.dumps(greeting)};
+                        ta.dispatchEvent(new Event('input', {{bubbles: true}}));
+                    }}
+                    // 按 Enter 发送
+                    ta.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', code: 'Enter', bubbles: true}}));
+                    return true;
+                }})()
+            """)
+            return bool(sent)
+        except Exception:
+            return False
 
     async def _fetch_jd_detail(s, security_id):
         try:
