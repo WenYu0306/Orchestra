@@ -77,6 +77,23 @@ class AgentRunner:
             # 扫码后多等一会让 cookie 完全生效
             await s._tab.sleep(5)
 
+            # cookie 真实生效验证：发一次小请求确认不是空cookie
+            verify_ok = False
+            for _ in range(3):
+                try:
+                    await s._tab.get("https://www.zhipin.com/wapi/zpgeek/search/joblist.json?query=AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91&city=101010100&page=1&pageSize=1")
+                    await s._tab.sleep(2)
+                    raw = await s._tab.evaluate("document.body.innerText")
+                    if raw and isinstance(raw, str) and '"code":0' in raw and '"jobList"' in raw:
+                        verify_ok = True
+                        break
+                except Exception:
+                    await asyncio.sleep(1)
+            if not verify_ok:
+                await sse_manager.emit_error("登录验证失败，cookie未生效，请重启重试")
+                return
+            print(f"[Agent] Cookie 验证通过", flush=True)
+
             # === 标签评分 ===
             all_scored = []
             city_warnings = set()
