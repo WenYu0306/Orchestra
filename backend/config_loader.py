@@ -104,9 +104,16 @@ def _load_raw_config() -> dict:
     """加载 config.yaml 原始字典"""
     config_path = get_project_root() / "config.yaml"
     if not config_path.exists():
+        # 帮新人自动从模板生成
+        example_path = config_path.with_name("config.yaml.example")
+        import shutil
+        if example_path.exists():
+            shutil.copy(example_path, config_path)
+            print(f"✓ 已从 config.yaml.example 生成 config.yaml，请编辑后重新启动", flush=True)
+            raise SystemExit(0)
         raise FileNotFoundError(
             f"config.yaml not found at {config_path}. "
-            "Copy config.yaml from the project template."
+            "Copy config.yaml.example to config.yaml and edit it."
         )
 
     with open(config_path, "r", encoding="utf-8") as f:

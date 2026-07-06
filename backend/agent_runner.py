@@ -55,9 +55,15 @@ class AgentRunner:
             except: pass
 
             await sse_manager.emit_status(AppStatus.RUNNING, {"message":"启动浏览器..."})
+            # Chrome 路径自动探测——Mac/Win/Linux 通用
+            chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+            if os.name == "nt":
+                chrome_path = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+            elif os.name == "posix" and not __import__('pathlib').Path(chrome_path).exists():
+                chrome_path = "google-chrome"
             s._browser = await uc.start(headless=False,
-                browser_executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                user_data_dir="/tmp/jh-fresh",
+                browser_executable_path=chrome_path,
+                user_data_dir=str(__import__('pathlib').Path(__import__('tempfile').gettempdir()) / "jh-fresh"),
                 browser_args=["--disable-blink-features=AutomationControlled","--no-first-run"])
             s._tab = s._browser.main_tab
             await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(8)
@@ -124,7 +130,7 @@ class AgentRunner:
                         if len(jd) < 10: continue
                         await sse_manager.emit_status(AppStatus.RUNNING, {"message":f"评估:{co}"})
                         try:
-                            m = await asyncio.wait_for(ds_match(s._resume, jd[:3000]), timeout=8.0)
+                            m = await asyncio.wait_for(ds_match(s._resume, jd[:3000]), timeout=15.0)
                         except asyncio.TimeoutError: continue
                         score = m["score"]
                         if score < 40: continue
@@ -160,7 +166,7 @@ class AgentRunner:
                     real_jd = await s._fetch_jd_detail(si) if si else ""
                     if real_jd and len(real_jd) > 100:
                         try:
-                            new_m = await asyncio.wait_for(ds_match(s._resume, real_jd[:3000]), timeout=8.0)
+                            new_m = await asyncio.wait_for(ds_match(s._resume, real_jd[:3000]), timeout=15.0)
                             new_score = new_m["score"]
                             print(f"[Detail] {idx+1}/30 {co}/{po} 标签{score}→真实{new_score} JD:{len(real_jd)}字", flush=True)
                             enriched.append((new_score, co, po, real_jd, kw, city_name, new_m))

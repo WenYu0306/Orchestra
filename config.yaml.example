@@ -1,0 +1,99 @@
+# ============ 平台设置 ============
+platform:
+  name: "boss"
+  login_method: "scan_qr"
+
+# ============ 简历 ============
+resume:
+  pdf_path: "./my_resume.pdf"
+
+# ============ 搜索设置 ============
+search:
+  primary_keywords:
+    - "AI应用开发"
+    - "LLM"
+    - "全栈开发"
+  dynamic_keywords: true
+
+  cities:
+    - name: "北京"
+      min_salary: 15000
+    - name: "长春"
+      min_salary: 8000
+
+  exclude:
+    - "远程"
+    - "全国"
+
+# ============ 匹配与分层 ============
+matching:
+  criteria:
+    skill_overlap_weight: 50
+    experience_relevance: 30
+    qualification_match: 20
+    cross_industry_bonus: true
+    cross_industry_bonus_value: 5
+
+  tiers:
+    high:
+      min_score: 80
+      count: 5
+    medium:
+      min_score: 60
+      max_score: 79
+      count: 7
+    try:
+      min_score: 40
+      max_score: 59
+      count: 8
+
+  pending:
+    max_count: 5
+
+# ============ 虚假招聘甄别 ============
+fake_job_detection:
+  enabled: true
+  keywords:
+    - "零基础转行"
+    - "包培训"
+    - "先培训后上岗"
+    - "包就业"
+    - "免费培训"
+  company_name_patterns:
+    - "科技教育"
+    - "IT培训"
+    - "职业技能"
+    - "实训基地"
+
+# ============ 个人信息（非敏感项） ============
+personal_info:
+  name: ""
+  phone: ""
+  email: ""
+  education: ""
+  school: ""
+  major: ""
+  work_status: ""
+  work_years: ""
+  current_company: ""
+  expected_salary: ""
+
+# ============ 投递设置 ============
+application:
+  button_strategy: "apply_first"
+  greeting: "auto_generate"
+  applied_log_path: "./data/applied_jobs.json"
+  pending_log_path: "./data/pending_jobs.json"
+
+# ============ 安全与速度 ============
+safety:
+  min_delay: 3
+  max_delay: 8
+  captcha_handling: "pause_notify"
+  headless: false
+
+# ============ Web 界面 ============
+web_ui:
+  host: "127.0.0.1"
+  port: 5000
+  auto_open: false
