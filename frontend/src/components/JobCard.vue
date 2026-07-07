@@ -1,5 +1,5 @@
 <script setup>
-const props = defineProps({ job: Object })
+const props = defineProps({ job: Object, selected: Boolean, onToggle: Function })
 
 const TIER_META = {
   high: { label: '高匹配' },
@@ -28,6 +28,9 @@ function copyGreeting(text) {
     <div class="top">
       <div class="info">
         <div class="company-row">
+          <div class="check-cell" :class="{ checked: selected }" @click.stop="onToggle(job.securityId)">
+            <span v-if="selected" class="check-mark"></span>
+          </div>
           <div class="avatar" :style="{ background: tierSoft(job.tier), color: tierColor(job.tier) }">
             {{ job.companyInitial }}
           </div>
@@ -149,4 +152,26 @@ function copyGreeting(text) {
 }
 .copy-btn:hover { border-color: var(--indigo-border); color: var(--indigo); }
 .greeting-text { font-size: 12.5px; color: var(--text-1); line-height: 20px; }
+
+/* 选中复选框 */
+.check-cell {
+  width: 18px; height: 18px; flex-shrink: 0;
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .2s ease;
+}
+.check-cell.checked {
+  background: var(--indigo);
+  border-color: var(--indigo);
+}
+.check-mark {
+  width: 6px; height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  margin-top: -1px;
+}
 </style>

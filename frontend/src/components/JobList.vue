@@ -2,7 +2,8 @@
 import { ref } from 'vue'
 import JobCard from './JobCard.vue'
 
-defineProps({ jobs: Array, loading: Boolean })
+const props = defineProps({ jobs: Array, loading: Boolean, selectedIds: Array, onToggle: Function })
+const emit = defineEmits(['send'])
 
 const sort = ref('score')
 const sorts = [
@@ -22,6 +23,11 @@ const sorts = [
       </div>
       <div class="sort-group">
         <button
+          class="sort-btn send-btn"
+          :disabled="selectedIds.length === 0"
+          @click="emit('send')"
+        >发送选中 {{ selectedIds.length }}</button>
+        <button
           v-for="s in sorts" :key="s.key"
           class="sort-btn" :class="{ active: sort === s.key }"
           @click="sort = s.key"
@@ -31,7 +37,9 @@ const sorts = [
 
     <!-- 卡片列表 -->
     <TransitionGroup name="card-in" tag="div" class="cards">
-      <JobCard v-for="job in jobs" :key="job.id" :job="job" />
+      <JobCard v-for="job in jobs" :key="job.securityId || job.company"
+        :job="job" :selected="selectedIds.includes(job.securityId)"
+        :on-toggle="onToggle" />
     </TransitionGroup>
 
     <!-- 骨架卡（分析中） -->
@@ -81,6 +89,19 @@ const sorts = [
   background: var(--green-soft);
   color: var(--green-dark);
   box-shadow: inset 0 0 0 1px var(--green-border);
+}
+.send-btn {
+  background: var(--indigo);
+  color: #fff;
+  font-weight: 600;
+  transition: opacity .2s;
+}
+.send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.send-btn:not(:disabled):hover {
+  opacity: 0.88;
 }
 
 .cards { display: flex; flex-direction: column; gap: 14px; }

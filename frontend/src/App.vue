@@ -9,6 +9,7 @@ import BottomBar from './components/BottomBar.vue'
 const status = ref('idle')
 const runningMsg = ref('就绪')
 const jobs = ref([])
+const selectedIds = ref([])
 const progress = ref(0)
 const step = ref('等待启动')
 const stepMeta = ref('点击「开始」运行 Agent')
@@ -54,19 +55,28 @@ function connectSSE() {
   })
   sse.addEventListener('complete', e => {
     const d = JSON.parse(e.data)
-    if (d.jobs && d.jobs.length) jobs.value = d.jobs
-    status.value = 'completed'
-    progress.value = 100
-    step.value = '已完成全部评估'
-    stepMeta.value = `共 ${d.total_applied || jobs.value.length} 个匹配`
-    if (timer) { clearInterval(timer); timer = null }
+    if (d.total_sent !== undefined) {
+      // 发送结果
+      const ok = d.total_sent || 0; const fail = d.total_failed || 0
+      notif.value = { type: 'done', text: `发送完成：${ok} 成功, ${fail} 失败` }
+      status.value = 'completed'
+    } else if (d.jobs && d.jobs.length) {
+      // 评分完成
+      jobs.value = d.jobs.map(j => ({...j, id: j.securityId || j.company}))
+      status.value = 'done'
+      progress.value = 100
+      step.value = '评估完成 · 勾选要发送的职位'
+      stepMeta.value = `共 ${d.total_applied || jobs.value.length} 个匹配`
+      selectedIds.value = []
+      if (timer) { clearInterval(timer); timer = null }
+    }
   })
   sse.addEventListener('error', e => {
     const d = JSON.parse(e.data)
     if (d && d.message) notif.value = { type: 'error', text: d.message }
   })
   sse.onerror = () => {
-    if (status.value === 'idle' || status.value === 'completed' || status.value === 'error') return
+    if (status.value === 'done' || status.value === 'idle' || status.value === 'completed' || status.value === 'error') return
     sseRetry++
     if (sseRetry > 10) notif.value = { type: 'error', text: '后端已断开，请手动重启' }
     else setTimeout(connectSSE, 5000)
@@ -95,6 +105,34 @@ async function handleStop() {
   catch (e) {}
 }
 
+function toggleJob(securityId) {
+  if (!securityId) return
+  const idx = selectedIds.value.indexOf(securityId)
+  if (idx >= 0) selectedIds.value.splice(idx, 1)
+  else selectedIds.value.push(securityId)
+}
+
+async function handleSend() {
+  const toSend = jobs.value.filter(j => selectedIds.value.includes(j.securityId))
+  if (toSend.length === 0) return
+  status.value = 'running'
+  step.value = '正在发送招呼语...'
+  stepMeta.value = `选中 ${toSend.length} 个`
+  try {
+    await fetch('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jobs: toSend.map(j => ({
+          securityId: j.securityId, greeting: j.greeting, company: j.company,
+        })),
+      }),
+    })
+  } catch (e) {
+    notif.value = { type: 'error', text: '发送失败: ' + (e.message || e) }
+  }
+}
+
 const scale = ref(1)
 function updateScale() {
   scale.value = Math.max(900 / 1440, Math.min(window.innerWidth / 1440, 1.4))
@@ -110,7 +148,7 @@ onUnmounted(() => { if (sse) sse.close(); window.removeEventListener('resize', u
       <TopBar :status="status" :matched="matched" @start="handleStart" @stop="handleStop" />
       <ProgressBand :progress="progress" :step="step" :step-meta="stepMeta" :elapsed="elapsed" :remaining="remaining" />
       <StatCards :jobs="jobs" />
-      <JobList :jobs="jobs" :loading="status === 'running'" />
+      <JobList :jobs="jobs" :loading="status === 'running'" :selected-ids="selectedIds" :on-toggle="toggleJob" @send="handleSend" />
       <BottomBar :matched="matched" :delivered="matched" />
     <Transition name="banner">
       <div v-if="notif" class="banner" :class="notif.type">

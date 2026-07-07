@@ -160,6 +160,37 @@ async def sse_events():
     return await sse_manager.subscribe()
 
 
+# ============ 发送招呼语 ============
+
+class SendJob(BaseModel):
+    securityId: str
+    greeting: str
+    company: str = ""
+
+class SendRequest(BaseModel):
+    jobs: list[SendJob]
+
+
+@app.post("/api/send")
+async def send_greetings(req: SendRequest):
+    """发送招呼语给前端选中的职位"""
+    if not agent_runner._tab:
+        raise HTTPException(status_code=400, detail="浏览器未就绪，请先运行搜索评分")
+    if agent_runner.is_running:
+        raise HTTPException(status_code=409, detail="已有任务运行中")
+
+    jobs = [{"securityId": j.securityId, "greeting": j.greeting, "company": j.company}
+            for j in req.jobs]
+    return await agent_runner.send_greetings(jobs)
+
+
+@app.post("/api/close")
+async def close_browser():
+    """关闭浏览器"""
+    await agent_runner.close_browser()
+    return {"ok": True, "message": "浏览器已关闭"}
+
+
 # ============ 快速测试（验证 AI 链路） ============
 
 @app.get("/api/test")

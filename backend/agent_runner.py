@@ -64,6 +64,7 @@ class AgentRunner:
             s._browser = await uc.start(headless=False,
                 browser_executable_path=chrome_path,
                 user_data_dir=str(__import__('pathlib').Path(__import__('tempfile').gettempdir()) / "jh-run-1"),
+                no_sandbox=True,
                 browser_args=["--disable-blink-features=AutomationControlled","--no-first-run"])
             s._tab = s._browser.main_tab
             await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(8)
@@ -169,13 +170,13 @@ class AgentRunner:
                             new_m = await asyncio.wait_for(ds_match(s._resume, real_jd[:3000]), timeout=15.0)
                             new_score = new_m["score"]
                             print(f"[Detail] {idx+1}/30 {co}/{po} 标签{score}→真实{new_score} JD:{len(real_jd)}字", flush=True)
-                            enriched.append((new_score, co, po, real_jd, kw, city_name, new_m))
+                            enriched.append((new_score, co, po, real_jd, kw, city_name, new_m, si))
                         except Exception:
-                            enriched.append((score, co, po, jd, kw, city_name, m))
+                            enriched.append((score, co, po, jd, kw, city_name, m, si))
                     else:
-                        enriched.append((score, co, po, jd, kw, city_name, m))
+                        enriched.append((score, co, po, jd, kw, city_name, m, si))
                     await asyncio.sleep(random.uniform(3,4))
-                enriched.extend([(sc, c, p, j, k, cn, mm) for sc, c, p, j, k, cn, mm, _ in all_scored[30:]])
+                enriched.extend([(sc, c, p, j, k, cn, mm, s) for sc, c, p, j, k, cn, mm, s in all_scored[30:]])
                 enriched.sort(key=lambda x: x[0], reverse=True)
                 print(f"[Agent] 详情重评完成，共 {len(enriched)} 个候选", flush=True)
             else:
@@ -190,7 +191,7 @@ class AgentRunner:
 
             # 第一遍取 JD>200 字的（详情重评过的）
             detail_rich = [x for x in enriched if len(x[3]) > 200]
-            for score, co, po, jd, kw, city_name, m in detail_rich:
+            for score, co, po, jd, kw, city_name, m, si in detail_rich:
                 if s._stop or applied >= high_quota + med_quota + try_quota: break
                 if co in s._ac or record_manager.is_company_recent(co): continue
                 if applied < high_quota:          tier = "high"
@@ -205,14 +206,15 @@ class AgentRunner:
                 s._tc[tier] = s._tc.get(tier,0) + 1
                 applied += 1
                 rec = record_manager.add_record(company=co, position=po, score=score,
-                    reason=m["reason"], tier=tier, status="dry_run")
+                    reason=m["reason"], tier=tier, status="dry_run",
+                    security_id=si, greeting=greet)
                 await sse_manager.emit_record(rec)
                 await asyncio.sleep(random.uniform(5,8))
 
             # 第二遍：JD 不够的不够补足名额
             if applied < max_total:
                 label_scored = [x for x in enriched if len(x[3]) <= 200]
-                for score, co, po, jd, kw, city_name, m in label_scored:
+                for score, co, po, jd, kw, city_name, m, si in label_scored:
                     if s._stop or applied >= max_total: break
                     if co in s._ac or record_manager.is_company_recent(co): continue
                     if applied < high_quota:          tier = "high"
@@ -227,7 +229,8 @@ class AgentRunner:
                     s._tc[tier] = s._tc.get(tier,0) + 1
                     applied += 1
                     rec = record_manager.add_record(company=co, position=po, score=score,
-                        reason=m["reason"], tier=tier, status="dry_run")
+                        reason=m["reason"], tier=tier, status="dry_run",
+                        security_id=si, greeting=greet)
                     await sse_manager.emit_record(rec)
                     await asyncio.sleep(random.uniform(3,5))
 
@@ -237,14 +240,117 @@ class AgentRunner:
                 "jobs": [{"title":r.get("position","?"),"company":r.get("company","?"),
                     "score":r.get("score",0),"tier":r.get("tier","?"),
                     "reason":r.get("reason",""),"status":r.get("status",""),
-                    "search_city":"","search_kw":"","greeting":""} for r in record_manager.get_all_records()]
+                    "securityId":r.get("security_id",""),
+                    "search_city":"","search_kw":"",
+                    "greeting":r.get("greeting","")} for r in record_manager.get_all_records()]
             })
         except Exception as e:
             traceback.print_exc(); await sse_manager.emit_error(str(e))
         finally:
-            if s._browser:
+            if s._stop and s._browser:
                 try: s._browser.stop()
                 except: pass
+
+    async def send_greetings(s, jobs: list[dict]):
+        """逐条发送招呼语。jobs: [{securityId, greeting, company}, ...]"""
+        if not s._tab:
+            await sse_manager.emit_error("浏览器未就绪")
+            return {"ok": False, "error": "浏览器未就绪"}
+
+        greet_btns = ["立即沟通","发起沟通","沟通一下","聊一聊","联系Ta","开始沟通"]
+        greet_btns_json = json.dumps(greet_btns, ensure_ascii=False)
+        results = []; total = len(jobs)
+
+        for idx, job in enumerate(jobs):
+            sid = job.get("securityId","")
+            greeting = job.get("greeting","")
+            company = job.get("company","?")
+
+            if not sid or not greeting:
+                results.append({"company":company,"ok":False,"reason":"缺少数据"})
+                continue
+
+            try:
+                await sse_manager.emit_status(AppStatus.RUNNING,
+                    {"message":f"发送: {idx+1}/{total} {company}"})
+
+                await s._tab.get(f"https://www.zhipin.com/job_detail/{sid}.html")
+                await s._tab.sleep(4)
+
+                # 跳过已沟通
+                already = await s._tab.evaluate("""
+                    (function(){
+                        var btns=document.querySelectorAll('a,button,span,div');
+                        for(var i=0;i<btns.length;i++){
+                            if((btns[i].textContent||'').includes('继续沟通'))return true
+                        }
+                        return false
+                    })()
+                """)
+                if already:
+                    results.append({"company":company,"ok":False,"reason":"已沟通过"})
+                    continue
+
+                # 点沟通按钮
+                clicked = await s._tab.evaluate(f"""
+                    (function(){{
+                        var targets={greet_btns_json};
+                        var btns=document.querySelectorAll('a,button,span,div');
+                        for(var i=0;i<btns.length;i++){{
+                            var t=(btns[i].textContent||'').trim();
+                            if(targets.indexOf(t)>=0){{btns[i].click();return true}}
+                        }}
+                        return false
+                    }})()
+                """)
+                if not clicked:
+                    results.append({"company":company,"ok":False,"reason":"未找到沟通按钮"})
+                    continue
+
+                await s._tab.sleep(2)
+
+                # 填招呼语 + 发送
+                greeting_json = json.dumps(greeting, ensure_ascii=False)
+                send_ok = await s._tab.evaluate(f"""
+                    (function(){{
+                        var g={greeting_json};
+                        var inp=document.querySelector('.chat-input,[class*="chat-input"],textarea,[contenteditable]');
+                        if(!inp)return'no_input';
+                        if(inp.tagName==='TEXTAREA'||inp.tagName==='INPUT'){{
+                            inp.value=g;inp.dispatchEvent(new Event('input',{{bubbles:true}}))
+                        }}else{{
+                            inp.textContent=g;inp.dispatchEvent(new Event('input',{{bubbles:true}}))
+                        }}
+                        var sbs=document.querySelectorAll('a,button,span');
+                        for(var i=0;i<sbs.length;i++){{
+                            var t=(sbs[i].textContent||'').trim();
+                            if(t==='发送'||t==='发 送'){{sbs[i].click();return'sent'}}
+                        }}
+                        inp.dispatchEvent(new KeyboardEvent('keydown',{{key:'Enter',bubbles:true}}));
+                        return'enter_sent'
+                    }})()
+                """)
+
+                results.append({"company":company,"ok":True,"detail":send_ok})
+                await sse_manager.emit_status(AppStatus.RUNNING,
+                    {"message":f"已发送: {idx+1}/{total} {company}"})
+
+            except Exception as e:
+                results.append({"company":company,"ok":False,"reason":str(e)})
+
+            await asyncio.sleep(random.uniform(8,15))
+
+        ok = sum(1 for r in results if r.get("ok"))
+        await sse_manager.emit_complete({
+            "total_sent":ok,"total_failed":total-ok,"results":results})
+        return {"ok":True,"total":total,"sent":ok,"results":results}
+
+    async def close_browser(s):
+        if s._browser:
+            try: s._browser.stop()
+            except: pass
+            s._browser = None; s._tab = None
+        sse_manager.set_status(AppStatus.IDLE)
 
     async def _fetch(s, kw, city_code, city_name, pages=1):
         """搜索页内部XHR调API——Sec-Fetch-Mode:cors，不是地址栏导航。"""

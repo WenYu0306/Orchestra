@@ -145,6 +145,8 @@ class RecordManager:
         reason: str,
         tier: str,
         status: str = "success",
+        security_id: str = "",
+        greeting: str = "",
     ) -> dict[str, Any]:
         """添加一条投递记录"""
         record = {
@@ -153,7 +155,9 @@ class RecordManager:
             "score": score,
             "reason": reason,
             "tier": tier,
-            "status": status,  # success / partial / failed
+            "status": status,  # success / partial / failed / dry_run
+            "security_id": security_id,
+            "greeting": greeting,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
