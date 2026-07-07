@@ -7,6 +7,8 @@ import re
 import httpx
 from .config_loader import get_api_key, get_llm_base_url
 
+_shared_client = None
+
 GREETING_PROMPT = """你是求职者本人，要诚实、克制地给 HR 发一条招呼语。
 
 ## 你的真实简历摘要（只能说自己确实有的经历，不能编造）
@@ -44,10 +46,14 @@ async def generate(jd_text: str, resume: str = "") -> str:
         "max_tokens": 256,
     }
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
-            r = await client.post(url, json=body, headers=headers)
-            r.raise_for_status()
-            raw = r.json()["choices"][0]["message"]["content"] or ""
+        global _shared_client
+        if _shared_client is None:
+            _shared_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(10.0, connect=5.0),
+                limits=httpx.Limits(max_connections=50, max_keepalive_connections=10))
+        r = await _shared_client.post(url, json=body, headers=headers)
+        r.raise_for_status()
+        raw = r.json()["choices"][0]["message"]["content"] or ""
         raw = re.sub(r"```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```", "", raw)
         return json.loads(raw.strip()).get("greeting", "您好，我对这个职位很感兴趣。")

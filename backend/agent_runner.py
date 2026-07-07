@@ -63,7 +63,7 @@ class AgentRunner:
                 chrome_path = "google-chrome"
             s._browser = await uc.start(headless=False,
                 browser_executable_path=chrome_path,
-                user_data_dir=str(__import__('pathlib').Path(__import__('tempfile').gettempdir()) / "jh-fresh"),
+                user_data_dir=str(__import__('pathlib').Path(__import__('tempfile').gettempdir()) / "jh-run-1"),
                 browser_args=["--disable-blink-features=AutomationControlled","--no-first-run"])
             s._tab = s._browser.main_tab
             await s._tab.get("https://www.zhipin.com/web/geek/job"); await s._tab.sleep(8)
@@ -247,19 +247,32 @@ class AgentRunner:
                 except: pass
 
     async def _fetch(s, kw, city_code, city_name, pages=1):
+        """搜索页内部XHR调API——Sec-Fetch-Mode:cors，不是地址栏导航。"""
         from urllib.parse import quote
         await sse_manager.emit_status(AppStatus.RUNNING, {"message":f"搜索:{city_name}/{kw}"})
         all_jobs = []; seen_ids = set()
         for page in range(1, pages + 1):
             if s._stop: break
+            # 导航到正常搜索结果页，不是 API URL
+            search_url = f"https://www.zhipin.com/web/geek/job?query={quote(kw)}&city={city_code}"
             api_url = (f"https://www.zhipin.com/wapi/zpgeek/search/joblist.json"
                        f"?query={quote(kw)}&city={city_code}&page={page}&pageSize=30")
             try:
-                await s._tab.get(api_url); await s._tab.sleep(4)
-                raw = await s._tab.evaluate("document.body.innerText")
+                await s._tab.get(search_url); await s._tab.sleep(6)
+                # 在页面内部用同步 XHR 调 API，请求头跟真人浏览一模一样
+                raw = await s._tab.evaluate(f"""
+                    (function(){{
+                        var x = new XMLHttpRequest();
+                        x.open('GET','{api_url}',false);
+                        try{{x.send()}}catch(e){{return'[]'}}
+                        if(x.status!=200)return'[]';
+                        try{{return JSON.stringify(JSON.parse(x.responseText).zpData.jobList)}}
+                        catch(e){{return'[]'}}
+                    }})()
+                """)
                 if not raw or not isinstance(raw, str): continue
-                data = json.loads(raw)
-                jl = data.get("zpData", {}).get("jobList", [])
+                try: jl = json.loads(raw)
+                except Exception: continue
                 if not jl: break
                 new = 0
                 for j in jl:
