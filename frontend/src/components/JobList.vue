@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import JobCard from './JobCard.vue'
 
-const props = defineProps({ jobs: Array, loading: Boolean, selectedIds: Array, onToggle: Function })
+const props = defineProps({ jobs: Array, loading: Boolean, selectedCount: Number })
 const emit = defineEmits(['send'])
 
 const sort = ref('score')
@@ -24,9 +24,9 @@ const sorts = [
       <div class="sort-group">
         <button
           class="sort-btn send-btn"
-          :disabled="selectedIds.length === 0"
+          :disabled="selectedCount === 0"
           @click="emit('send')"
-        >发送选中 {{ selectedIds.length }}</button>
+        >发送选中 {{ selectedCount }}</button>
         <button
           v-for="s in sorts" :key="s.key"
           class="sort-btn" :class="{ active: sort === s.key }"
@@ -37,9 +37,8 @@ const sorts = [
 
     <!-- 卡片列表 -->
     <TransitionGroup name="card-in" tag="div" class="cards">
-      <JobCard v-for="job in jobs" :key="job.securityId || job.company"
-        :job="job" :selected="selectedIds.includes(job.securityId)"
-        :on-toggle="onToggle" />
+      <JobCard v-for="(job, idx) in jobs" :key="job.securityId || job.encryptJobId || idx"
+        :job="job" />
     </TransitionGroup>
 
     <!-- 骨架卡（分析中） -->

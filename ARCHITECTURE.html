@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JobHunter 技术架构 · 中文版</title>
+<style>
+  :root { color-scheme: light }
+  body {
+    font-family: -apple-system, 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif;
+    background: #F7F5FA; margin: 0; padding: 32px; color: #1E293B;
+    line-height: 1.8;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #94A3B8; font-size: 13px; margin-bottom: 32px; }
+  .layer {
+    background: #fff; border-radius: 16px; padding: 28px; margin-bottom: 20px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+  }
+  .layer h2 {
+    font-size: 16px; margin: 0 0 16px;
+    padding-bottom: 10px; border-bottom: 1px solid #E2E8F0;
+  }
+  .layer h3 {
+    font-size: 14px; margin: 20px 0 8px;
+    color: #6366F1;
+  }
+  .layer p { font-size: 13px; color: #475569; margin: 6px 0; }
+  .file {
+    display: inline-block;
+    background: #F1F5F9; color: #334155;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 12px; padding: 2px 8px; border-radius: 4px;
+    margin-right: 6px;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    margin-right: 6px; font-weight: 500;
+  }
+  .tag.green { background: #D1FAE5; color: #065F46; }
+  .tag.blue { background: #DBEAFE; color: #1E40AF; }
+  .tag.purple { background: #EDE9FE; color: #5B21B6; }
+  .tag.red { background: #FEE2E2; color: #991B1B; }
+  .tag.amber { background: #FEF3C7; color: #92400E; }
+
+  .flow {
+    display: flex; align-items: center; gap: 12px;
+    flex-wrap: wrap; margin: 16px 0;
+    font-size: 13px;
+  }
+  .flow .step {
+    background: #F8FAFC; border: 1px solid #E2E8F0;
+    border-radius: 10px; padding: 10px 14px;
+    min-width: 100px; text-align: center;
+  }
+  .flow .step.bad {
+    background: #FEF2F2; border-color: #FECACA;
+  }
+  .flow .arrow { color: #94A3B8; font-size: 18px; font-weight: bold; }
+
+  .note {
+    background: #FFFBEB; border: 1px solid #FDE68A;
+    border-radius: 10px; padding: 14px 18px; margin-top: 16px;
+    font-size: 13px; color: #92400E;
+  }
+  .note strong { color: #B45309; }
+
+  hr { border: none; border-top: 1px dashed #E2E8F0; margin: 20px 0; }
+</style>
+</head>
+<body>
+
+<h1>JobHunter v1.0 · 技术架构</h1>
+<div class="sub">2026-07-08 ｜ 后端评分链路全通 ｜ 招呼语发送待修正</div>
+
+<!-- ========== 第一层：用户看到的 ========== -->
+<div class="layer">
+  <h2>第一层 · 你看到的前端界面 <span class="tag green">Safari · localhost:5173</span></h2>
+  <p>技术栈：Vue 3 + Vite，7 个组件拼成单页。Vite 把 <code>/api</code> 开头的请求代理到后端 5000 端口。</p>
+
+  <h3>页面布局（从上到下）</h3>
+  <p><span class="file">App.vue</span> 是总控，内嵌 6 个子组件：</p>
+  <p><span class="file">TopBar</span> — 最顶部状态栏。绿色圆点=运行中，灰色=就绪，红色=出错。右侧"开始""停止"两个按钮。</p>
+  <p><span class="file">ProgressBand</span> — 进度条+计时器。显示"正在评估「XX公司·XX岗位」"之类的实时步骤。</p>
+  <p><span class="file">StatCards</span> — 4 个统计卡片：高分（≥80）、中分（60-79）、可试（40-59）、总候选数。</p>
+  <p><span class="file">JobList</span> — 职位卡片列表。顶部有"发送选中 N"按钮（indigo 色），勾选卡片后变亮可点。</p>
+  <p><span class="file">JobCard</span> — 单张职位卡片。左上角复选框，中间公司名+职位名+分数（大数字），下面是匹配理由和招呼语预览，可复制。</p>
+  <p><span class="file">BottomBar</span> — 最底部信息栏。</p>
+
+  <h3>数据怎么来的</h3>
+  <p>前端不直接调后端 REST API 拿数据。走的是 <strong>SSE 实时推送</strong>——前端 <code>new EventSource('/api/events')</code> 建立长连接，后端每评完一个岗位就推一条 <code>record</code> 事件过来，前端立刻插一张卡片。整个过程像直播一样，不是先等完再一次性加载。</p>
+
+  <h3>复选框为什么之前点不动</h3>
+  <p>Safari 的 bug：<code>&lt;label&gt;</code> 包住 <code>&lt;input type="checkbox"&gt;</code> 时，点击 label 会改变 checkbox 的勾选状态，但不触发 Vue 的 <code>@change</code> 事件。所以后端 <code>toggleJob</code> 函数从来没被调到，<code>selectedIds</code> 数组永远是空的，按钮一直是灰的。现在改成了纯 <code>&lt;div&gt;</code> + <code>@click</code>，绕过了这个坑。</p>
+</div>
+
+<!-- ========== 第二层：后端 ========== -->
+<div class="layer">
+  <h2>第二层 · 后端 API 层 <span class="tag blue">FastAPI · localhost:5000</span></h2>
+  <p>技术栈：Python 3.12 + FastAPI + uvicorn。入口文件 <span class="file">backend/main.py</span></p>
+
+  <h3>7 个 API 端点</h3>
+
+  <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;">
+    <tr style="background:#F8FAFC">
+      <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">GET /api/status</td>
+      <td style="padding:8px 12px">查当前状态：空闲/运行中/验证码/已完成，各层已投了几个。前端 onMounted 时调一次。</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">POST /api/start</td>
+      <td style="padding:8px 12px">启动全部流程：开浏览器 → 扫码登录 → 搜索 → 评分 → 分层 → 生成招呼语。内部 <code>asyncio.create_task(_run())</code> 丢到后台跑。</td>
+    </tr>
+    <tr style="background:#F8FAFC">
+      <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">POST /api/stop</td>
+      <td style="padding:8px 12px">设 <code>_stop = True</code>，几秒内任务自然退出。</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">GET /api/events</td>
+      <td style="padding:8px 12px">SSE 长连接。前端 EventSource 挂在这里，实时收到 status / record / complete / error 四种事件。</td>
+    </tr>
+    <tr style="background:#F8FAFC">
+      <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">GET /api/test</td>
+      <td style="padding:8px 12px">不开浏览器，纯测 AI 链路：读简历 → 生成搜索词 → 示例 JD 打分。启动前验证用。</td>
+    </tr>
+    <tr style="background:#FEF2F2">
+      <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">POST /api/send ⚠️</td>
+      <td style="padding:8px 12px; color:#991B1B">招呼语发送。当前实现有 bug：导航到职位详情页找沟通按钮，应该改到搜索列表页直接操作。见下方说明。</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">POST /api/close</td>
+      <td style="padding:8px 12px">手动关 nodriver 浏览器。</td>
+    </tr>
+  </table>
+</div>
+
+<!-- ========== 第三层：核心引擎 ========== -->
+<div class="layer">
+  <h2>第三层 · Agent 运行引擎 <span class="tag purple">agent_runner.py · 400行</span></h2>
+  <p>这是整个项目的"大脑"。一个 <code>AgentRunner</code> 单例，管理浏览器生命周期和全部任务流程。</p>
+
+  <h3>点「开始」后，10 步完整流水线：</h3>
+
+  <div class="flow">
+    <div class="step">① 读简历<br/><small>fitz 解析 PDF</small></div>
+    <div class="arrow">→</div>
+    <div class="step">② 生成搜索词<br/><small>DeepSeek 分析简历</small></div>
+    <div class="arrow">→</div>
+    <div class="step">③ 启动 Chrome<br/><small>nodriver CDP</small></div>
+    <div class="arrow">→</div>
+    <div class="step">④ 登录<br/><small>扫码或 Cookie</small></div>
+    <div class="arrow">→</div>
+    <div class="step">⑤ 搜索<br/><small>城市×关键词 XHR</small></div>
+  </div>
+  <div class="flow" style="margin-top:0">
+    <div class="step">⑥ 标签评分<br/><small>搜索字段拼JD → DeepSeek快评</small></div>
+    <div class="arrow">→</div>
+    <div class="step">⑦ 过滤<br/><small>城市/薪资/虚假招聘</small></div>
+    <div class="arrow">→</div>
+    <div class="step">⑧ 详情重评<br/><small>top30拿完整JD → DeepSeek重评</small></div>
+    <div class="arrow">→</div>
+    <div class="step">⑨ 分层<br/><small>高5 中7 试8 → 生成招呼语</small></div>
+    <div class="arrow">→</div>
+    <div class="step">⑩ SSE推送<br/><small>逐条推给前端</small></div>
+  </div>
+
+  <h3>关键技术细节</h3>
+  <p><strong>搜索怎么做的：</strong>不走 UI 点击。在 nodriver 打开的 Chrome 页面里注入同步 XHR（XMLHttpRequest），直接调 BOSS 的内部 API <code>wapi/zpgeek/search/joblist.json?query=xxx&city=xxx&page=1&pageSize=30</code>。请求从真 Chrome 发出去，cookie 和请求头跟真人一模一样，不会被反爬拦。</p>
+  <p><strong>详情 JD 怎么拿的：</strong>同样方式调 <code>wapi/zpgeek/job/card.json?securityId=xxx</code>，取 <code>zpData.jobCard.postDescription</code>。</p>
+  <p><strong>"标签"是什么：</strong>搜索 API 返回的数据里没有完整 JD，只有字段碎片——职位名、薪资范围、经验要求、学历要求、技能标签、福利列表。拼成一句话扔给 DeepSeek 打快分，叫"标签评分"。分数高的 top 30 才去拿完整 JD 重评。</p>
+  <p><strong>浏览器为什么不关：</strong>之前干跑完 <code>finally</code> 里直接 <code>browser.stop()</code>。现在改成只在 <code>_stop</code> 为 true 时才关——干跑完成后浏览器保持打开，等你勾选完点发送，复用同一个 tab。</p>
+  <p><strong>securityId 贯穿全链路：</strong><code>all_scored</code> 数组里每个元素 8 个字段，最后一个是 <code>si</code>（securityId）。经过详情重评、分层、<code>record_manager</code> 存储，一路跟到前端 JobCard 组件的 <code>job.securityId</code>——发送时前端把它传回 <code>/api/send</code>。</p>
+</div>
+
+<!-- ========== 第四层：AI ========== -->
+<div class="layer">
+  <h2>第四层 · AI 决策层 <span class="tag purple">httpx → DeepSeek</span></h2>
+
+  <p>三个独立模块，各调各的 DeepSeek API，各有一个共享 <code>httpx.AsyncClient</code>（连接池上限 50、keepalive 10 条）。惰性初始化——第一次调时才创建，之后复用。</p>
+
+  <h3><span class="file">matcher.py</span> — JD 匹配打分</h3>
+  <p>输入：你的简历全文（前 3000 字）+ 职位描述（前 2000 字）→ DeepSeek 返回 0-100 分 + 匹配理由 + 置信度 + 是否虚假招聘 + 是否跨行业友好。Prompt 里写了评分标准：技术栈 50%、项目经验 30%、基本条件 20%、跨行业加分 5 分。</p>
+
+  <h3><span class="file">search_generator.py</span> — 动态搜索词生成</h3>
+  <p>输入：你的简历全文 → DeepSeek 返回 3-5 个搜索方向（方向名 + 关键词数组 + 优先级 + 推荐理由）。比如从你的简历里分析出「AI应用开发」「全栈开发」「LLM工程化」「AI辅助编程」四个方向。结合 config.yaml 里的城市和关键词做约束。</p>
+
+  <h3><span class="file">greeting_generator.py</span> — 招呼语生成</h3>
+  <p>输入：你的简历摘要 + 职位描述 → DeepSeek 返回 50-100 字的招呼语。Prompt 要求诚实——只能说你简历里真实存在的技能，"不要夸大年限、不要编造头衔"。</p>
+
+  <div class="note">
+    <strong>为什么选 DeepSeek：</strong>国内最便宜、中文最好、API 兼容 OpenAI 格式。三个模块用同一个 <code>deepseek-chat</code> 模型，只是 temperature 和 max_tokens 不同（打分 0.1、搜索词 0.3、招呼语 0.5）。
+  </div>
+</div>
+
+<!-- ========== 第五层：存储 ========== -->
+<div class="layer">
+  <h2>第五层 · 数据存储 <span class="tag amber">本地 JSON 文件</span></h2>
+
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <tr style="background:#F8FAFC">
+      <td style="padding:8px 12px; font-family:monospace; white-space:nowrap">config.yaml</td>
+      <td style="padding:8px 12px">平台设置（BOSS）、搜索城市/关键词/排除词、匹配分层参数、虚假招聘特征词、安全延迟、简历路径。所有模块通过 <span class="file">config_loader.py</span> 统一读。</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px; font-family:monospace; white-space:nowrap">.env</td>
+      <td style="padding:8px 12px">DEEPSEEK_API_KEY。.gitignore 排除。</td>
+    </tr>
+    <tr style="background:#F8FAFC">
+      <td style="padding:8px 12px; font-family:monospace; white-space:nowrap">my_resume.pdf</td>
+      <td style="padding:8px 12px">你的简历 PDF。config.yaml 里 <code>resume.pdf_path</code> 指向它。.gitignore 排除 *.pdf。</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px; font-family:monospace; white-space:nowrap">data/applied_jobs.json</td>
+      <td style="padding:8px 12px">已投递（干跑）记录。每条含公司、职位、分数、分层、理由、securityId、招呼语、时间戳。原子写入（写 .tmp 再 rename）。</td>
+    </tr>
+    <tr style="background:#F8FAFC">
+      <td style="padding:8px 12px; font-family:monospace; white-space:nowrap">data/pending_jobs.json</td>
+      <td style="padding:8px 12px">待选区。DeepSeek 置信度为 low 的候选放这里，保留最多 5 条。</td>
+    </tr>
+  </table>
+</div>
+
+<!-- ========== 问题 ========== -->
+<div class="layer" style="border: 2px solid #FCA5A5;">
+  <h2>⚠️ 已知问题：招呼语发送 <span class="tag red">待修正</span></h2>
+
+  <h3>当前实现 vs 正确做法</h3>
+  <div class="flow">
+    <div class="step bad">当前（错）<br/>导航到职位详情页<br/><small>job_detail/{securityId}.html</small></div>
+    <div class="arrow">→</div>
+    <div class="step bad">在详情页里<br/>找沟通按钮</div>
+    <div class="arrow">→</div>
+    <div class="step bad">填招呼语 + 发送</div>
+  </div>
+
+  <div class="flow">
+    <div class="step" style="background:#D1FAE5;border-color:#6EE7B7;">正确做法<br/>在搜索列表页</div>
+    <div class="arrow">→</div>
+    <div class="step" style="background:#D1FAE5;border-color:#6EE7B7;">定位职位卡片<br/>点「立即沟通」按钮</div>
+    <div class="arrow">→</div>
+    <div class="step" style="background:#D1FAE5;border-color:#6EE7B7;">弹窗填招呼语<br/>点发送</div>
+  </div>
+
+  <h3>两个问题</h3>
+  <p>1. <strong>URL 可能不对：</strong><code>securityId</code> 是 BOSS API 返回的字段，但职位详情页 URL 用的可能是 <code>encryptJobId</code>——搜索 API 返回里两个字段都有，我们不确定哪个是详情页 URL 的参数。</p>
+  <p>2. <strong>沟通按钮不在详情页：</strong>GitHub 上 7 个同类项目的做法一致——在搜索列表页的职位卡片上直接找沟通按钮（文本可能是「立即沟通」「发起沟通」「沟通一下」「聊一聊」「联系Ta」「开始沟通」六种之一），点开后弹出一个招呼语对话框，填好发送。<strong>不跳详情页。</strong></p>
+
+  <div class="note">
+    <strong>下一步需要的验证（你手动做，不改代码）：</strong><br/>
+    ① 打开 BOSS 网页版，随便看一个职位详情页，看浏览器地址栏 URL 格式是不是 <code>job_detail/xxx.html</code><br/>
+    ② 详情页上有「立即沟通」按钮吗？打开控制台执行 <code>document.querySelector('[class*="chat"]')</code> 看能找到什么<br/>
+    ③ 回到搜索列表页，找一个职位卡片，右键检查元素，看沟通按钮的 class 和 DOM 结构
+  </div>
+</div>
+
+<p style="text-align:center; color:#94A3B8; font-size:12px; margin-top:32px;">
+  JobHunter v1.0 · FastAPI + Vue3 + DeepSeek + nodriver · 2026-07-08
+</p>
+
+</body>
+</html>

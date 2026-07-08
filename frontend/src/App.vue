@@ -9,7 +9,6 @@ import BottomBar from './components/BottomBar.vue'
 const status = ref('idle')
 const runningMsg = ref('就绪')
 const jobs = ref([])
-const selectedIds = ref([])
 const progress = ref(0)
 const step = ref('等待启动')
 const stepMeta = ref('点击「开始」运行 Agent')
@@ -46,6 +45,9 @@ function connectSSE() {
       search_city: d.search_city || '',
       search_kw: d.search_kw || '',
       greeting: d.greeting || '',
+      securityId: d.security_id || '',
+      encryptJobId: d.encrypt_job_id || '',
+      _selected: false,
       status: d.status || 'dry_run',
     })
     status.value = 'running'
@@ -62,12 +64,11 @@ function connectSSE() {
       status.value = 'completed'
     } else if (d.jobs && d.jobs.length) {
       // 评分完成
-      jobs.value = d.jobs.map(j => ({...j, id: j.securityId || j.company}))
+      jobs.value = d.jobs.map(j => ({...j, _selected: false, id: j.securityId || j.company}))
       status.value = 'done'
       progress.value = 100
       step.value = '评估完成 · 勾选要发送的职位'
       stepMeta.value = `共 ${d.total_applied || jobs.value.length} 个匹配`
-      selectedIds.value = []
       if (timer) { clearInterval(timer); timer = null }
     }
   })
@@ -105,15 +106,10 @@ async function handleStop() {
   catch (e) {}
 }
 
-function toggleJob(securityId) {
-  if (!securityId) return
-  const idx = selectedIds.value.indexOf(securityId)
-  if (idx >= 0) selectedIds.value.splice(idx, 1)
-  else selectedIds.value.push(securityId)
-}
+const selectedCount = computed(() => jobs.value.filter(j => j._selected).length)
 
 async function handleSend() {
-  const toSend = jobs.value.filter(j => selectedIds.value.includes(j.securityId))
+  const toSend = jobs.value.filter(j => j._selected)
   if (toSend.length === 0) return
   status.value = 'running'
   step.value = '正在发送招呼语...'
@@ -124,7 +120,8 @@ async function handleSend() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jobs: toSend.map(j => ({
-          securityId: j.securityId, greeting: j.greeting, company: j.company,
+          securityId: j.securityId, encryptJobId: j.encryptJobId,
+          greeting: j.greeting, company: j.company,
         })),
       }),
     })
@@ -148,7 +145,7 @@ onUnmounted(() => { if (sse) sse.close(); window.removeEventListener('resize', u
       <TopBar :status="status" :matched="matched" @start="handleStart" @stop="handleStop" />
       <ProgressBand :progress="progress" :step="step" :step-meta="stepMeta" :elapsed="elapsed" :remaining="remaining" />
       <StatCards :jobs="jobs" />
-      <JobList :jobs="jobs" :loading="status === 'running'" :selected-ids="selectedIds" :on-toggle="toggleJob" @send="handleSend" />
+      <JobList :jobs="jobs" :loading="status === 'running'" :selected-count="selectedCount" @send="handleSend" />
       <BottomBar :matched="matched" :delivered="matched" />
     <Transition name="banner">
       <div v-if="notif" class="banner" :class="notif.type">

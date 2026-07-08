@@ -1,0 +1,108 @@
+graph TB
+    subgraph 用户层["🖥️ 用户层"]
+        Browser["Safari 浏览器<br/>localhost:5173"]
+    end
+
+    subgraph 前端["🎨 前端 (Vue3 + Vite :5173)"]
+        App["App.vue<br/>状态管理 + SSE订阅"]
+        TopBar["TopBar<br/>状态指示灯 + 开始/停止"]
+        ProgressBand["ProgressBand<br/>进度条 + 计时"]
+        StatCards["StatCards<br/>高分/中分/可试 计数"]
+        JobList["JobList<br/>排序 + 发送选中按钮"]
+        JobCard["JobCard<br/>职位卡片 + 复选框 + 招呼语"]
+    end
+
+    subgraph 后端["⚙️ 后端 (FastAPI :5000)"]
+        Main["main.py<br/>REST API + SSE入口"]
+
+        subgraph API层["API 端点"]
+            Status["GET /api/status"]
+            Start["POST /api/start"]
+            Stop["POST /api/stop"]
+            Events["GET /api/events<br/>(SSE流)"]
+            Test["GET /api/test<br/>(AI链路验证)"]
+            Send["POST /api/send<br/>(招呼语发送 ⚠️待修正)"]
+            Close["POST /api/close<br/>(关浏览器)"]
+        end
+
+        subgraph 核心模块["核心模块"]
+            Agent["agent_runner.py<br/>主编排器<br/>搜→评→分层→发送"]
+            Config["config_loader.py<br/>config.yaml + .env"]
+            SSE["sse_manager.py<br/>SSE连接池 + 事件推送"]
+            Record["record_manager.py<br/>JSON文件存储"]
+        end
+
+        subgraph AI模块["AI 决策层 (httpx → DeepSeek)"]
+            Matcher["matcher.py<br/>JD匹配打分<br/>共享客户端 50/10"]
+            SearchGen["search_generator.py<br/>动态搜索词生成<br/>共享客户端 50/10"]
+            GreetingGen["greeting_generator.py<br/>招呼语生成<br/>共享客户端 50/10"]
+        end
+
+        Validator["validator.py<br/>城市/薪资/公司过滤"]
+    end
+
+    subgraph 外部["🌐 外部系统"]
+        Chrome["Chrome 浏览器<br/>(nodriver CDP协议)"]
+        BossAPI["BOSS直聘 API<br/>wapi/zpgeek/search/joblist.json<br/>wapi/zpgeek/job/card.json"]
+        DeepSeek["DeepSeek API<br/>api.deepseek.com/v1"]
+    end
+
+    subgraph 存储["💾 本地存储"]
+        ConfigFile["config.yaml<br/>平台/搜索/匹配配置"]
+        EnvFile[".env<br/>DEEPSEEK_API_KEY"]
+        Resume["my_resume.pdf<br/>(.gitignore已排除)"]
+        AppliedLog["data/applied_jobs.json"]
+        PendingLog["data/pending_jobs.json"]
+    end
+
+    %% 前端 → 后端
+    Browser -->|"Vite proxy /api → :5000"| Main
+    Browser --> App
+    App --> TopBar
+    App --> ProgressBand
+    App --> StatCards
+    App --> JobList
+    JobList --> JobCard
+
+    %% 后端内部
+    Main --> Status
+    Main --> Start
+    Main --> Stop
+    Main --> Events
+    Main --> Test
+    Main --> Send
+    Main --> Close
+
+    Start -->|"asyncio.create_task"| Agent
+    Send -->|"agent_runner.send_greetings()"| Agent
+    Close -->|"agent_runner.close_browser()"| Agent
+
+    Agent --> Config
+    Agent --> SSE
+    Agent --> Record
+    Agent --> Matcher
+    Agent --> SearchGen
+    Agent --> GreetingGen
+    Agent --> Validator
+    Agent -->|"_read_resume()"| Resume
+
+    Config --> ConfigFile
+    Config --> EnvFile
+    Record --> AppliedLog
+    Record --> PendingLog
+
+    %% Agent → 外部
+    Agent -->|"nodriver uc.start()"| Chrome
+    Chrome -->|"tab.evaluate() 同步XHR"| BossAPI
+    Chrome -->|"tab.get() 导航"| BossAPI
+    Matcher -->|"httpx.AsyncClient"| DeepSeek
+    SearchGen -->|"httpx.AsyncClient"| DeepSeek
+    GreetingGen -->|"httpx.AsyncClient"| DeepSeek
+
+    %% SSE 推送回前端
+    SSE -->|"EventSource /api/events"| App
+
+    style Send fill:#fbb,stroke:#f00
+    style BossAPI fill:#ff9,stroke:#f90
+    style Chrome fill:#9f9,stroke:#090
+    style DeepSeek fill:#9cf,stroke:#09f

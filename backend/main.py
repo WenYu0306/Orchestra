@@ -164,6 +164,7 @@ async def sse_events():
 
 class SendJob(BaseModel):
     securityId: str
+    encryptJobId: str = ""
     greeting: str
     company: str = ""
 
@@ -179,7 +180,8 @@ async def send_greetings(req: SendRequest):
     if agent_runner.is_running:
         raise HTTPException(status_code=409, detail="已有任务运行中")
 
-    jobs = [{"securityId": j.securityId, "greeting": j.greeting, "company": j.company}
+    jobs = [{"securityId": j.securityId, "encryptJobId": j.encryptJobId,
+             "greeting": j.greeting, "company": j.company}
             for j in req.jobs]
     return await agent_runner.send_greetings(jobs)
 
