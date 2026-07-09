@@ -266,6 +266,7 @@ class AgentRunner:
             await sse_manager.emit_error("浏览器未就绪")
             return {"ok": False, "error": "浏览器未就绪"}
 
+        print(f"[Send] 收到 {len(jobs)} 条: {[(j.get('company','?'),j.get('encryptJobId','')[:20],j.get('greeting','')[:30]) for j in jobs]}", flush=True)
         greet_btns = ["立即沟通","发起沟通","沟通一下","聊一聊","联系Ta","开始沟通"]
         results = []; total = len(jobs)
 
@@ -282,8 +283,11 @@ class AgentRunner:
                     {"message":f"发送: {idx+1}/{total} {company}"})
 
                 # 打开职位详情页（encryptJobId）
-                await s._tab.get(f"https://www.zhipin.com/job_detail/{encId}.html")
-                await s._tab.sleep(5)
+                url = f"https://www.zhipin.com/job_detail/{encId}.html"
+                print(f"[Send] {idx+1}/{total} 导航到 {url}", flush=True)
+                await s._tab.get(url); await s._tab.sleep(5)
+                cur_url = s._tab.target.url or ""
+                print(f"[Send] {idx+1}/{total} 当前URL: {cur_url[:80]}", flush=True)
 
                 # 已沟通过则跳过
                 already = await s._tab.evaluate("""
@@ -312,6 +316,7 @@ class AgentRunner:
                         return false
                     }})()
                 """)
+                print(f"[Send] {idx+1}/{total} 按钮={clicked}", flush=True)
                 if not clicked:
                     results.append({"company":company,"ok":False,"reason":"未找到沟通按钮"})
                     continue
@@ -349,6 +354,7 @@ class AgentRunner:
                     }})()
                 """)
 
+                print(f"[Send] {idx+1}/{total} 填入+发送: {send_ok}", flush=True)
                 results.append({"company":company,"ok":True,"detail":send_ok})
                 await sse_manager.emit_status(AppStatus.RUNNING,
                     {"message":f"已发送: {idx+1}/{total} {company}"})

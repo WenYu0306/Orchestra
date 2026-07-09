@@ -233,6 +233,7 @@ class RecordManager:
         每次新"开始投递"任务时调用。
         """
         self._tier_counts = {"high": 0, "medium": 0, "try": 0}
+        self._applied = []
         self._applied_companies = set()
         for record in self._applied:
             company = record.get("company", "")
