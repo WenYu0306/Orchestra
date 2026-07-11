@@ -64,11 +64,11 @@ class AgentRunner:
             s._resume = s._read_resume()
             cfg = get_config()
 
-            keywords = await s._prepare_keywords(cfg)
-            _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")
-
             if not await s._launch_and_login():
                 return
+
+            keywords = await s._prepare_keywords(cfg)
+            _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")
 
             all_scored, city_warnings, salary_skipped = await s._search_and_score(
                 cfg, keywords)
@@ -443,25 +443,22 @@ class AgentRunner:
                 if chat_path:
                     chat_full = f"https://www.zhipin.com{chat_path}" if chat_path.startswith('/') else chat_path
                     _log.info(f"[Send] {idx+1}/{total} 聊天页: {chat_full[:120]}")
-                    await s._tab.get(chat_full); await s._tab.sleep(4)
+                    await s._tab.get(chat_full); await s._tab.sleep(5)
 
-                    greeting_json = json.dumps(greeting, ensure_ascii=False)
-                    chat_send = await s._tab.evaluate(f"""
-                        (function(){{
-                            var g={greeting_json};
-                            // 找聊天页可见输入框
-                            var inp=document.querySelector('textarea,input:not([type="hidden"]),[contenteditable="true"],[role="textbox"]');
-                            if(!inp)return'chat_no_input';
-                            inp.focus();
-                            if(inp.isContentEditable){{inp.textContent=g}}
-                            else{{inp.value=g}}
-                            inp.dispatchEvent(new Event('input',{{bubbles:true}}));
-                            // enter 发送
-                            inp.dispatchEvent(new KeyboardEvent('keydown',{{key:'Enter',bubbles:true}}));
-                            return'chat_ok';
-                        }})()
-                    """)
-                    _log.info(f"[Send] {idx+1}/{total} 聊天页发送: {chat_send}")
+                    # tab 级键盘输入（React 不认 element.send_keys 和 JS dispatchEvent）
+                    try:
+                        inp = await s._tab.select("textarea,[contenteditable='true']")
+                        if inp:
+                            await inp.focus()
+                            await s._tab.sleep(0.3)
+                            await s._tab.send_keys(greeting)
+                            await s._tab.sleep(0.5)
+                            await s._tab.send_keys("\n")
+                            _log.info(f"[Send] {idx+1}/{total} tab键盘完成")
+                        else:
+                            _log.warning(f"[Send] {idx+1}/{total} 聊天页未找到输入框")
+                    except Exception as ke:
+                        _log.warning(f"[Send] {idx+1}/{total} 键盘失败: {ke}")
                 else:
                     _log.info(f"[Send] {idx+1}/{total} 无聊天URL, 只用系统默认")
                 results.append({"company":company,"ok":True,"detail":send_ok})
