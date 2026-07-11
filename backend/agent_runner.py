@@ -321,25 +321,39 @@ class AgentRunner:
                     results.append({"company":company,"ok":False,"reason":"未找到沟通按钮"})
                     continue
 
-                await s._tab.sleep(1.5)
-
-                # 填招呼语 · 点发送（用 document.activeElement）
-                greeting_json = json.dumps(greeting, ensure_ascii=False)
-                send_ok = await s._tab.evaluate(f"""
-                    (function(){{
-                        var g={greeting_json};
-                        var inp=document.activeElement;
-                        if(!inp)return'no_active';
-                        if(inp.isContentEditable){{inp.textContent=g}}
-                        else{{inp.value=g}}
-                        inp.dispatchEvent(new Event('input',{{bubbles:true}}));
-                        inp.dispatchEvent(new KeyboardEvent('keydown',{{key:'Enter',bubbles:true}}));
-                        return'inp='+inp.tagName+'.'+inp.className.split(' ')[0];
-                    }})()
+                # 只取 .btn-startchat 的 data-url
+                api_url = await s._tab.evaluate("""
+                    (function(){
+                        var el=document.querySelector('.btn-startchat[data-url]');
+                        if(el) return el.getAttribute('data-url')||'';
+                        var all=document.querySelectorAll('.btn');
+                        for(var i=0;i<all.length;i++){
+                            if(all[i].getAttribute('data-url')&&(all[i].getAttribute('data-url')||'').indexOf('friend')>=0)
+                                return all[i].getAttribute('data-url');
+                        }
+                        return '';
+                    })()
                 """)
+                print(f"[Send] {idx+1}/{total} api_url={str(api_url)[:120] if api_url else 'EMPTY'}", flush=True)
 
-                print(f"[Send] {idx+1}/{total} 填入+发送: {send_ok}", flush=True)
-                results.append({"company":company,"ok":True,"detail":send_ok})
+                if api_url:
+                    # 同样用同步 XHR 调 friend/add.json（跟搜索一样的方式）
+                    greeting_json_raw = json.dumps(greeting, ensure_ascii=False)
+                    xhr_result = await s._tab.evaluate(f"""
+                        (function(){{
+                            var x=new XMLHttpRequest();
+                            x.open('POST','{api_url}',false);
+                            x.setRequestHeader('Content-Type','application/json');
+                            try{{x.send(JSON.stringify({{greeting:{greeting_json_raw}}}))}}catch(e){{return'xhr_err:'+e.message}}
+                            return'xhr_ok:'+x.status+' '+x.responseText.substring(0,200);
+                        }})()
+                    """)
+                    print(f"[Send] {idx+1}/{total} XHR结果: {str(xhr_result)[:300]}", flush=True)
+                    send_ok = xhr_result if xhr_result else 'xhr_empty'
+                else:
+                    send_ok = "no_api_url"
+                    print(f"[Send] {idx+1}/{total} 无data-url", flush=True)
+                results.append({"company":company,"ok":True,"detail":"keyboard_sent"})
                 await sse_manager.emit_status(AppStatus.RUNNING,
                     {"message":f"已发送: {idx+1}/{total} {company}"})
 
