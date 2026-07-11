@@ -445,20 +445,30 @@ class AgentRunner:
                     _log.info(f"[Send] {idx+1}/{total} 聊天页: {chat_full[:120]}")
                     await s._tab.get(chat_full); await s._tab.sleep(5)
 
-                    # tab 级键盘输入（React 不认 element.send_keys 和 JS dispatchEvent）
+                    # CDP Input.insertText + dispatchKeyEvent（内核键盘，React 认）
                     try:
-                        inp = await s._tab.select("textarea,[contenteditable='true']")
-                        if inp:
-                            await inp.focus()
-                            await s._tab.sleep(0.3)
-                            await s._tab.send_keys(greeting)
-                            await s._tab.sleep(0.5)
-                            await s._tab.send_keys("\n")
-                            _log.info(f"[Send] {idx+1}/{total} tab键盘完成")
-                        else:
-                            _log.warning(f"[Send] {idx+1}/{total} 聊天页未找到输入框")
-                    except Exception as ke:
-                        _log.warning(f"[Send] {idx+1}/{total} 键盘失败: {ke}")
+                        # 先聚焦输入框
+                        await s._tab.evaluate("""
+                            (function(){
+                                var inp=document.querySelector('textarea,[contenteditable="true"]');
+                                if(inp)inp.focus();
+                            })()
+                        """)
+                        await s._tab.sleep(0.5)
+
+                        # CDP 文本输入（内核级 paste，不走 JS 事件）
+                        from nodriver import cdp
+                        await s._tab.send(cdp.input.insert_text(text=greeting))
+                        await s._tab.sleep(0.3)
+                        # CDP 回车键
+                        await s._tab.send(cdp.input.dispatch_key_event(
+                            type="keyDown", key="Enter", code="Enter", keyCode=13))
+                        await s._tab.sleep(0.1)
+                        await s._tab.send(cdp.input.dispatch_key_event(
+                            type="keyUp", key="Enter", code="Enter", keyCode=13))
+                        _log.info(f"[Send] {idx+1}/{total} CDP完成")
+                    except Exception as cdp_err:
+                        _log.warning(f"[Send] {idx+1}/{total} CDP失败: {cdp_err}")
                 else:
                     _log.info(f"[Send] {idx+1}/{total} 无聊天URL, 只用系统默认")
                 results.append({"company":company,"ok":True,"detail":send_ok})
