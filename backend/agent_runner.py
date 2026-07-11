@@ -456,16 +456,17 @@ class AgentRunner:
                         """)
                         await s._tab.sleep(0.5)
 
-                        # CDP 文本输入（内核级 paste，不走 JS 事件）
-                        from nodriver import cdp
-                        await s._tab.send(cdp.input.insert_text(text=greeting))
+                        # CDP 文本输入 + 回车键（内核级，React 认）
+                        from nodriver.cdp import input_ as cdp_input
+                        await s._tab.send(cdp_input.insert_text(text=greeting))
                         await s._tab.sleep(0.3)
-                        # CDP 回车键
-                        await s._tab.send(cdp.input.dispatch_key_event(
-                            type="keyDown", key="Enter", code="Enter", keyCode=13))
+                        await s._tab.send(cdp_input.dispatch_key_event(
+                            type_="keyDown", key="Enter", code="Enter",
+                            windows_virtual_key_code=13))
                         await s._tab.sleep(0.1)
-                        await s._tab.send(cdp.input.dispatch_key_event(
-                            type="keyUp", key="Enter", code="Enter", keyCode=13))
+                        await s._tab.send(cdp_input.dispatch_key_event(
+                            type_="keyUp", key="Enter", code="Enter",
+                            windows_virtual_key_code=13))
                         _log.info(f"[Send] {idx+1}/{total} CDP完成")
                     except Exception as cdp_err:
                         _log.warning(f"[Send] {idx+1}/{total} CDP失败: {cdp_err}")
