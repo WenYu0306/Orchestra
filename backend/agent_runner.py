@@ -321,36 +321,20 @@ class AgentRunner:
                     results.append({"company":company,"ok":False,"reason":"未找到沟通按钮"})
                     continue
 
-                await s._tab.sleep(3)
+                await s._tab.sleep(1.5)
 
-                # 填招呼语 · 点发送
+                # 填招呼语 · 点发送（用 document.activeElement）
                 greeting_json = json.dumps(greeting, ensure_ascii=False)
                 send_ok = await s._tab.evaluate(f"""
                     (function(){{
                         var g={greeting_json};
-                        var inp=document.querySelector('[contenteditable="true"],textarea');
-                        if(!inp)inp=document.querySelector('.chat-input,[class*="chat-input"]');
-                        if(!inp)inp=document.querySelector('[class*="input"]');
-                        if(!inp)return'no_input';
-                        if(inp.isContentEditable||inp.getAttribute('contenteditable')){{
-                            inp.focus();inp.textContent=g;
-                            inp.dispatchEvent(new Event('input',{{bubbles:true}}));
-                        }}else{{
-                            inp.value=g;
-                            inp.dispatchEvent(new Event('input',{{bubbles:true}}));
-                        }}
-                        var btn=document.querySelector('span.btn,button.btn,[class*="send"]');
-                        if(!btn){{
-                            var all=document.querySelectorAll('a,button,span,div');
-                            for(var i=0;i<all.length;i++){{
-                                var t=(all[i].textContent||'').trim();
-                                if(t==='发送'||t==='发 送'){{all[i].click();return'sent'}}
-                            }}
-                        }}
-                        if(btn){{btn.click();return'sent'}}
-                        // 兜底：按键 Enter
+                        var inp=document.activeElement;
+                        if(!inp)return'no_active';
+                        if(inp.isContentEditable){{inp.textContent=g}}
+                        else{{inp.value=g}}
+                        inp.dispatchEvent(new Event('input',{{bubbles:true}}));
                         inp.dispatchEvent(new KeyboardEvent('keydown',{{key:'Enter',bubbles:true}}));
-                        return'enter_sent'
+                        return'inp='+inp.tagName+'.'+inp.className.split(' ')[0];
                     }})()
                 """)
 
