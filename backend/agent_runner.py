@@ -133,6 +133,12 @@ class AgentRunner:
                 all_scored.extend(round_scored)
                 high70 = sum(1 for x in all_scored if x[0] >= 70)
                 _log.info(f"[Agent] {loop}轮: {kw}/{city_name} +{len(round_scored)}, 池{len(all_scored)} ≥70:{high70}")
+                # checkpoint
+                try:
+                    cp = [{"score":x[0],"company":x[1],"pos":x[2],"city":x[5],"kw":x[4]} for x in all_scored[-50:]]
+                    with open(_log_dir / "checkpoint.json","w") as f:
+                        json.dump(cp, f, ensure_ascii=False)
+                except Exception: pass
 
             for w in city_warnings:
                 _log.warning(w)

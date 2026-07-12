@@ -70,7 +70,9 @@ class RecordManager:
                 self._pending = []
 
     def _save_applied(self) -> None:
-        """原子写入 applied_jobs.json"""
+        """原子写入 applied_jobs.json，保留最近 200 条"""
+        if len(self._applied) > 200:
+            self._applied = self._applied[-200:]
         tmp_path = self._applied_path.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(self._applied, f, ensure_ascii=False, indent=2)

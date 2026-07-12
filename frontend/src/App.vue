@@ -51,7 +51,7 @@ function connectSSE() {
       status: d.status || 'dry_run',
     })
     status.value = 'running'
-    progress.value = Math.min((matched.value / 500) * 100, 95)
+    progress.value = Math.min((matched.value / 250) * 100, 95)
     step.value = `正在评估「${d.company || '?'} · ${d.position || '?'}」`
     stepMeta.value = `已匹配 ${matched.value} 个 · DeepSeek 打分中`
   })
@@ -174,6 +174,9 @@ onUnmounted(() => { if (sse) sse.close(); window.removeEventListener('resize', u
   margin: 0 auto;
   position: relative;
   z-index: 1;
+}
+@media (max-width: 1440px) {
+  .scaler { width: 100%; transform: none; }
 }
 .shell {
   min-height: 100vh;
