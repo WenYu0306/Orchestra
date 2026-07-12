@@ -360,6 +360,8 @@ class AgentRunner:
         for idx, (score, co, po, jd, kw, city_name, m, si, encId) in enumerate(topN):
             if s._stop:
                 break
+            await sse_manager.emit_status(AppStatus.RUNNING,
+                {"message": f"重新评分: {idx+1}/30 {co}"})
             real_jd = await s._fetch_jd_detail(si) if si else ""
             if real_jd and len(real_jd) > 100:
                 try:
