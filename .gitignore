@@ -8,6 +8,8 @@ credentials.json
 data/applied_jobs.json
 data/pending_jobs.json
 data/logs/
+data/logs/checkpoint.json
+data/logs/agent_decisions.jsonl
 
 # ============ 简历 ============
 my_resume.pdf

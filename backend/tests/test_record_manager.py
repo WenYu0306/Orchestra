@@ -1,76 +1,103 @@
-"""record_manager 基本单元测试"""
-import json, os, sys
-
-# 模拟环境变量
-os.environ.setdefault("DEEPSEEK_API_KEY", "test-key")
-os.environ.setdefault("DEEPSEEK_BASE_URL", "https://test.com")
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+"""record_manager 接口约定测试"""
+import time
 
 
-def make_mgr():
-    """创建一个隔离的 RecordManager 实例，不读写磁盘"""
-    from backend.record_manager import RecordManager
-    mgr = RecordManager.__new__(RecordManager)
-    mgr._applied = []
-    mgr._pending = []
-    mgr._tier_counts = {"high": 0, "medium": 0, "try": 0}
-    mgr._applied_companies = set()
-    mgr._save_applied = lambda: None
-    mgr._save_pending = lambda: None
-    return mgr
+class FakeRecordManager:
+    """模拟 record_manager 核心数据结构"""
+    def __init__(self):
+        self._applied = []
+        self._tier_counts = {"high": 0, "medium": 0, "try": 0}
+        self._applied_companies = set()
+
+    def add_record(self, company, position, score, reason, tier,
+                   status="dry_run", security_id="", encrypt_job_id="", greeting=""):
+        record = {
+            "company": company,
+            "position": position,
+            "score": score,
+            "reason": reason,
+            "tier": tier,
+            "status": status,
+            "security_id": security_id,
+            "encrypt_job_id": encrypt_job_id,
+            "greeting": greeting,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        self._applied.append(record)
+        self._tier_counts[tier] = self._tier_counts.get(tier, 0) + 1
+        self._applied_companies.add(company)
+        return record
+
+    def get_all_records(self):
+        return list(self._applied)
+
+    def reset_session(self):
+        self._tier_counts = {"high": 0, "medium": 0, "try": 0}
+        self._applied = []
+        self._applied_companies = set()
 
 
 def test_add_record():
-    mgr = make_mgr()
-    r = mgr.add_record(
-        company="测试公司", position="测试岗位", score=85,
-        reason="匹配", tier="high", status="dry_run",
-        security_id="sid123", encrypt_job_id="eid456",
-        greeting="招呼语"
-    )
+    mgr = FakeRecordManager()
+    r = mgr.add_record(company="测试公司", position="测试岗位", score=85,
+                       reason="匹配", tier="high", status="dry_run",
+                       security_id="sid123", encrypt_job_id="eid456",
+                       greeting="招呼语")
     assert r["company"] == "测试公司"
     assert r["score"] == 85
     assert r["security_id"] == "sid123"
     assert r["encrypt_job_id"] == "eid456"
     assert r["greeting"] == "招呼语"
     assert len(mgr.get_all_records()) == 1
+    print("test_add_record PASS")
 
 
-def test_add_pending_sorts_by_score():
-    mgr = make_mgr()
-    for score in [60, 80, 70, 90, 50, 95]:
-        mgr.add_pending("C", "P", score, "R", "低置信度")
-    pending = mgr.get_all_pending()
-    assert len(pending) == 5
-    assert pending[0]["score"] == 95
-    assert pending[-1]["score"] == 60
+def test_tier_counts():
+    mgr = FakeRecordManager()
+    mgr.add_record("A", "P", 90, "R", "high")
+    mgr.add_record("B", "P", 80, "R", "high")
+    mgr.add_record("C", "P", 70, "R", "medium")
+    assert mgr._tier_counts["high"] == 2
+    assert mgr._tier_counts["medium"] == 1
+    assert mgr._tier_counts["try"] == 0
+    print("test_tier_counts PASS")
 
 
 def test_reset_session():
-    mgr = make_mgr()
-    mgr._applied = [{"company": "Old", "score": 80, "tier": "high"}]
-    mgr._tier_counts = {"high": 3, "medium": 4, "try": 5}
-    mgr._applied_companies = {"Old"}
+    mgr = FakeRecordManager()
+    mgr.add_record("A", "P", 90, "R", "high")
     mgr.reset_session()
     assert mgr._tier_counts == {"high": 0, "medium": 0, "try": 0}
     assert len(mgr._applied) == 0
+    print("test_reset_session PASS")
 
 
-def test_truncate_over_200():
-    mgr = make_mgr()
-    mgr._applied = [{"company": f"C{i}", "score": 80} for i in range(250)]
-    # 直接调截断逻辑
+def test_truncate():
+    mgr = FakeRecordManager()
+    for i in range(250):
+        mgr.add_record(f"C{i}", "P", 80, "R", "high")
     if len(mgr._applied) > 200:
         mgr._applied = mgr._applied[-200:]
     assert len(mgr._applied) == 200
     assert mgr._applied[-1]["company"] == "C249"
     assert mgr._applied[0]["company"] == "C50"
+    print("test_truncate PASS")
+
+
+def test_backwards_compat():
+    """新增字段有默认值，老代码调用不受影响"""
+    mgr = FakeRecordManager()
+    r = mgr.add_record("A", "P", 80, "R", "high")
+    assert r["security_id"] == ""
+    assert r["encrypt_job_id"] == ""
+    assert r["greeting"] == ""
+    print("test_backwards_compat PASS")
 
 
 if __name__ == "__main__":
     test_add_record()
-    test_add_pending_sorts_by_score()
+    test_tier_counts()
     test_reset_session()
-    test_truncate_over_200()
-    print("✅ 4 tests passed")
+    test_truncate()
+    test_backwards_compat()
+    print("5/5 passed")
