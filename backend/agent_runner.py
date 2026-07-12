@@ -71,12 +71,12 @@ class AgentRunner:
             _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")
 
             # === Agent 批量搜索循环 ===
-            MIN_CANDIDATES = 200
             BATCH_SIZE = 3
             all_scored = []
             city_warnings = set()
             salary_skipped = 0
             loop = 0
+            cities = cfg.search.get("cities", [])
 
             for i in range(0, len(keywords), BATCH_SIZE):
                 if s._stop:
@@ -91,13 +91,17 @@ class AgentRunner:
                 salary_skipped += skipped
 
                 high70 = sum(1 for x in all_scored if x[0] >= 70)
-                _log.info(f"[Agent] 进度: {len(all_scored)}候选, {high70}个≥70分")
+                remain = (len(keywords) - i - BATCH_SIZE) // BATCH_SIZE
+                _log.info(f"[Agent] 进度: {len(all_scored)}候选, {high70}个≥70分, 剩余{max(0,remain)}批")
 
-                if len(all_scored) >= MIN_CANDIDATES:
-                    _log.info(f"[Agent] 候选池达{len(all_scored)}，停止搜索")
-                    break
-                if loop >= 10:
-                    _log.info(f"[Agent] 已达最大轮次，停止搜索")
+                # AI 决策：第3批之后介入，硬规则作安全网
+                if loop >= 3:
+                    dec = await s._agent_decide(all_scored, keywords, cities, loop, max(0, remain))
+                    if dec.get("action") == "stop":
+                        _log.info(f"[Agent] 停止: {dec.get('reason','')}")
+                        break
+                if len(all_scored) >= 300 or loop >= 10:
+                    _log.info(f"[Agent] 安全上限，停止搜索")
                     break
 
             for w in city_warnings:
@@ -360,6 +364,54 @@ class AgentRunner:
                       "search_city": "", "search_kw": "",
                       "greeting": r.get("greeting", "")} for r in record_manager.get_all_records()]
         })
+
+    async def _agent_decide(s, all_scored: list, keywords: list,
+                            cities: list, loop: int, remain_batch: int) -> dict:
+        """DeepSeek 决策：根据当前搜索状态，决定继续搜还是停止。
+        返回 {"action":"continue"|"stop", "reason":"..."}。
+        失败时回退硬规则——候选到300或10轮即停。"""
+        # 硬规则兜底
+        if len(all_scored) >= 300 or loop >= 10:
+            return {"action": "stop", "reason": f"硬规则: {len(all_scored)}候选/{loop}轮"}
+
+        # 拼状态文本
+        high80 = sum(1 for x in all_scored if x[0] >= 80)
+        high70 = sum(1 for x in all_scored if x[0] >= 70)
+        city_counts = {}
+        for x in all_scored:
+            cn = x[5]; city_counts[cn] = city_counts.get(cn, 0) + 1
+        city_str = ", ".join(f"{k}:{v}" for k, v in city_counts.items())
+        used_kw = set(x[4] for x in all_scored[-remain_batch*90:]) if all_scored else set()
+        used_str = ", ".join(sorted(used_kw)[:6])
+
+        prompt = (
+            f"你是求职Agent的决策模块。当前搜索状态：\n"
+            f"- 第{loop}轮，候选池{len(all_scored)}个（≥80:{high80}, ≥70:{high70})\n"
+            f"- 城市分布: {city_str}\n"
+            f"- 最近词: {used_str}，剩余词{remain_batch}批\n"
+            f"候选池够了吗？回答JSON: {{\"action\":\"stop\"|\"continue\",\"reason\":\"一句话\"}}"
+        )
+
+        try:
+            # 用 greeting_generator 的共享客户端调 DeepSeek（轻量调用）
+            from .config_loader import get_api_key, get_llm_base_url
+            import httpx
+            url = f"{get_llm_base_url('deepseek')}/chat/completions"
+            headers = {"Authorization": f"Bearer {get_api_key('deepseek')}", "Content-Type": "application/json"}
+            body = {"model": "deepseek-chat", "messages": [
+                {"role": "system", "content": "你是Agent决策器。只输出JSON，字数越少越好。"},
+                {"role": "user", "content": prompt}],
+                "temperature": 0.1, "max_tokens": 128}
+            async with httpx.AsyncClient(timeout=httpx.Timeout(8, connect=5)) as client:
+                r = await client.post(url, json=body, headers=headers)
+            r.raise_for_status()
+            content = r.json()["choices"][0]["message"]["content"] or ""
+            result = json.loads(re.search(r'\{[\s\S]*\}', content).group(0))
+            _log.info(f"[Agent] AI决策: {result.get('action','?')} — {result.get('reason','')}")
+            return {"action": result.get("action", "continue"), "reason": result.get("reason", "")}
+        except Exception:
+            _log.info("[Agent] AI决策异常，回退硬规则")
+            return {"action": "continue", "reason": "回退"}
 
     async def send_greetings(s, jobs: list[dict]):
         """逐条发送招呼语。jobs 格式来自前端: [{encryptJobId, securityId, greeting, company}, ...]
