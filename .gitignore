@@ -49,3 +49,4 @@ tools/
 # ============ Playwright ============
 playwright-report/
 test-results/
+CLAUDE.md
