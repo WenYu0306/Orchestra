@@ -295,7 +295,14 @@ async def root():
 @app.get("/api/health",
          summary="健康检查", description="返回服务运行状态")
 async def health():
-    return {"status": "ok", "service": "Orchestra"}
+    import os
+    status = "ok"
+    checks = {"api_key": bool(os.getenv("DEEPSEEK_API_KEY","")),
+              "chrome_alive": agent_runner._browser is not None,
+              "tab_alive": agent_runner._tab is not None}
+    if not checks["api_key"]:
+        status = "degraded"
+    return {"status": status, "service": "Orchestra", "checks": checks}
 
 
 # ============ 直接运行 ============

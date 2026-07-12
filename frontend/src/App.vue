@@ -38,6 +38,7 @@ function connectSSE() {
     jobs.value.push({
       title: d.position || '?',
       company: d.company || '?',
+      companyInitial: (d.company || '?')[0],
       score: d.score || 0,
       tier: d.tier || 'try',
       reason: d.reason || '',

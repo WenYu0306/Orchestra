@@ -24,6 +24,9 @@ _ch = logging.StreamHandler(sys.stdout); _ch.setFormatter(_fmt); _log.addHandler
 _log_dir = get_project_root() / "data" / "logs"
 _log_dir.mkdir(parents=True, exist_ok=True)
 _fh = TimedRotatingFileHandler(str(_log_dir / "agent.log"), when="midnight", backupCount=7)
+_fh.suffix = "%Y-%m-%d"
+try: _fh.maxBytes = 10 * 1024 * 1024  # 10MB per file
+except Exception: pass
 _fh.setFormatter(_fmt); _log.addHandler(_fh)
 
 
@@ -301,7 +304,9 @@ class AgentRunner:
         return all_scored, city_warnings, salary_skipped
 
     async def _search_one(s, kw: str, city_name: str, city_code: str, min_sal: int) -> list:
-        """原子搜索：单个关键词 × 单个城市。返回 scored 列表。"""
+        """Agent 原子工具——单个关键词 × 单个城市搜索+过滤+评分。
+        在 Chrome 页面内跑同步 XHR 调 BOSS joblist.json，拿回 30 个岗位，
+        经过城市/公司/薪资三重过滤后，DeepSeek 打快分，返回 scored 元组列表。"""
         if s._stop:
             return []
         jobs = await s._fetch(kw, city_code, city_name)
@@ -447,9 +452,8 @@ class AgentRunner:
 
     async def _agent_decide(s, all_scored: list, remainder: list,
                             cities: list, loop: int, remain_count: int) -> dict:
-        """DeepSeek 决策：根据当前搜索状态，决定下一步操作。
-        返回 {"action":"search"|"stop","keyword":"..."|None,"city":"..."|None,"reason":"..."}。
-        失败回退硬规则。"""
+        """Agent 决策核心——把候选池状态（分数分布/城市分布/剩余关键词）拼文本发给
+        DeepSeek，让它决定：搜什么词、搜哪个城、还是停了进分层。失败回退硬规则。"""
         if len(all_scored) >= 300 or loop >= 12:
             return {"action": "stop", "reason": f"安全上限:{len(all_scored)}候选/{loop}轮"}
         if not remainder:
