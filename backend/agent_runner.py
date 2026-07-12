@@ -70,39 +70,66 @@ class AgentRunner:
             keywords = await s._prepare_keywords(cfg)
             _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")
 
-            # === Agent 批量搜索循环 ===
-            BATCH_SIZE = 3
+            # === Agent 动态调度搜索 ===
+            BOSS_CODE = {"北京": "101010100", "长春": "101060100"}
+            cities_cfg = cfg.search.get("cities", [])
             all_scored = []
             city_warnings = set()
             salary_skipped = 0
             loop = 0
-            cities = cfg.search.get("cities", [])
+            used_kw = set()
 
-            for i in range(0, len(keywords), BATCH_SIZE):
-                if s._stop:
+            # 首轮：每个城市 × 前 3 个关键词摸底
+            init_kw = keywords[:3]
+            used_kw.update(init_kw)
+            for kw in init_kw:
+                if s._stop: break
+                for c in cities_cfg:
+                    if s._stop: break
+                    cc = BOSS_CODE.get(c["name"], "101010100")
+                    ms = c.get("min_salary", 0)
+                    loop += 1
+                    round_scored = await s._search_one(kw, c["name"], cc, ms)
+                    all_scored.extend(round_scored)
+                    high70 = sum(1 for x in all_scored if x[0] >= 70)
+                    _log.info(f"[Agent] 首轮{loop}: {kw}/{c['name']} +{len(round_scored)}, 池{len(all_scored)} ≥70:{high70}")
+
+            # Agent 调度循环
+            while not s._stop and loop < 12 and len(all_scored) < 300:
+                remainder = [kw for kw in keywords if kw not in used_kw]
+                if not remainder:
+                    _log.info("[Agent] 无剩余关键词，停止搜索")
                     break
-                batch = keywords[i:i + BATCH_SIZE]
-                loop += 1
-                _log.info(f"[Agent] 第{loop}批搜索: {batch}")
 
-                scored, warns, skipped = await s._search_and_score(cfg, batch)
-                all_scored.extend(scored)
-                city_warnings |= warns
-                salary_skipped += skipped
-
+                # 构建状态
+                city_stats = {}
+                for x in all_scored:
+                    cn = x[5]; city_stats[cn] = city_stats.get(cn, 0) + 1
+                high80 = sum(1 for x in all_scored if x[0] >= 80)
                 high70 = sum(1 for x in all_scored if x[0] >= 70)
-                remain = (len(keywords) - i - BATCH_SIZE) // BATCH_SIZE
-                _log.info(f"[Agent] 进度: {len(all_scored)}候选, {high70}个≥70分, 剩余{max(0,remain)}批")
 
-                # AI 决策：第3批之后介入，硬规则作安全网
-                if loop >= 3:
-                    dec = await s._agent_decide(all_scored, keywords, cities, loop, max(0, remain))
-                    if dec.get("action") == "stop":
-                        _log.info(f"[Agent] 停止: {dec.get('reason','')}")
-                        break
-                if len(all_scored) >= 300 or loop >= 10:
-                    _log.info(f"[Agent] 安全上限，停止搜索")
+                state = (
+                    f"第{loop+1}轮（最多12轮）。候选池{len(all_scored)}个（≥80:{high80}, ≥70:{high70}）。"
+                    f"城市: {city_stats}。待搜词: {remainder[:6]}。"
+                    f"必要时选待搜词中最相关的{remainder[0]}搜北京或长春，或者stop。"
+                    f"JSON: {{\"action\":\"search\"|\"stop\",\"keyword\":\"...\",\"city\":\"北京\"|\"长春\",\"reason\":\"...\"}}"
+                )
+                dec = await s._agent_decide(all_scored, remainder,
+                                            cities_cfg, loop, len(remainder))
+                if dec.get("action") != "search":
                     break
+                kw = dec.get("keyword", remainder[0]) if dec.get("keyword") in remainder else remainder[0]
+                city_name = dec.get("city", cities_cfg[0]["name"])
+                c_match = next((cc for cc in cities_cfg if cc["name"] == city_name), cities_cfg[0])
+                cc = BOSS_CODE.get(c_match["name"], "101010100")
+                ms = c_match.get("min_salary", 0)
+
+                loop += 1
+                used_kw.add(kw)
+                round_scored = await s._search_one(kw, city_name, cc, ms)
+                all_scored.extend(round_scored)
+                high70 = sum(1 for x in all_scored if x[0] >= 70)
+                _log.info(f"[Agent] {loop}轮: {kw}/{city_name} +{len(round_scored)}, 池{len(all_scored)} ≥70:{high70}")
 
             for w in city_warnings:
                 _log.warning(w)
@@ -264,6 +291,49 @@ class AgentRunner:
         all_scored.sort(key=lambda x: x[0], reverse=True)
         return all_scored, city_warnings, salary_skipped
 
+    async def _search_one(s, kw: str, city_name: str, city_code: str, min_sal: int) -> list:
+        """原子搜索：单个关键词 × 单个城市。返回 scored 列表。"""
+        if s._stop:
+            return []
+        jobs = await s._fetch(kw, city_code, city_name)
+        if not jobs:
+            return []
+        scored = []
+        for j in jobs:
+            if s._stop:
+                break
+            co = j.get("brandName", "") or j.get("brandName", "")
+            po = j.get("jobName", "")
+            if not co:
+                continue
+            ok, warn = check_city(j, city_name)
+            ok, warn = check_company(j)
+            ok, warn = check_salary(j, min_sal)
+            if not ok:
+                continue
+            parts = [po, j.get("salaryDesc", ""), j.get("cityName", ""),
+                     j.get("jobExperience", ""), j.get("jobDegree", "")]
+            for k in ("jobLabels", "skills", "welfareList"):
+                v = j.get(k, [])
+                parts.extend(v) if isinstance(v, list) else None
+            jd = " ".join(str(p) for p in parts if p)
+            if len(jd) < 10:
+                continue
+            await sse_manager.emit_status(AppStatus.RUNNING, {"message": f"评估:{co}"})
+            try:
+                m = await asyncio.wait_for(ds_match(s._resume, jd[:3000]), timeout=15.0)
+            except asyncio.TimeoutError:
+                continue
+            score = m["score"]
+            if score < 40:
+                continue
+            if m.get("is_fake_job") or m["confidence"] == "low":
+                continue
+            si = j.get("securityId", "")
+            encId = j.get("encryptJobId", "")
+            scored.append((score, co, po, jd, kw, city_name, m, si, encId))
+        return scored
+
     async def _detail_reevaluate(s, all_scored: list) -> list:
         """top 30 详情重评。返回 enriched 列表。"""
         if not all_scored or s._stop:
@@ -365,53 +435,51 @@ class AgentRunner:
                       "greeting": r.get("greeting", "")} for r in record_manager.get_all_records()]
         })
 
-    async def _agent_decide(s, all_scored: list, keywords: list,
-                            cities: list, loop: int, remain_batch: int) -> dict:
-        """DeepSeek 决策：根据当前搜索状态，决定继续搜还是停止。
-        返回 {"action":"continue"|"stop", "reason":"..."}。
-        失败时回退硬规则——候选到300或10轮即停。"""
-        # 硬规则兜底
-        if len(all_scored) >= 300 or loop >= 10:
-            return {"action": "stop", "reason": f"硬规则: {len(all_scored)}候选/{loop}轮"}
+    async def _agent_decide(s, all_scored: list, remainder: list,
+                            cities: list, loop: int, remain_count: int) -> dict:
+        """DeepSeek 决策：根据当前搜索状态，决定下一步操作。
+        返回 {"action":"search"|"stop","keyword":"..."|None,"city":"..."|None,"reason":"..."}。
+        失败回退硬规则。"""
+        if len(all_scored) >= 300 or loop >= 12:
+            return {"action": "stop", "reason": f"安全上限:{len(all_scored)}候选/{loop}轮"}
+        if not remainder:
+            return {"action": "stop", "reason": "无剩余关键词"}
 
-        # 拼状态文本
         high80 = sum(1 for x in all_scored if x[0] >= 80)
         high70 = sum(1 for x in all_scored if x[0] >= 70)
         city_counts = {}
         for x in all_scored:
             cn = x[5]; city_counts[cn] = city_counts.get(cn, 0) + 1
         city_str = ", ".join(f"{k}:{v}" for k, v in city_counts.items())
-        used_kw = set(x[4] for x in all_scored[-remain_batch*90:]) if all_scored else set()
-        used_str = ", ".join(sorted(used_kw)[:6])
 
         prompt = (
-            f"你是求职Agent的决策模块。当前搜索状态：\n"
-            f"- 第{loop}轮，候选池{len(all_scored)}个（≥80:{high80}, ≥70:{high70})\n"
-            f"- 城市分布: {city_str}\n"
-            f"- 最近词: {used_str}，剩余词{remain_batch}批\n"
-            f"候选池够了吗？回答JSON: {{\"action\":\"stop\"|\"continue\",\"reason\":\"一句话\"}}"
+            f"你是求职Agent调度器。搜索状态：{len(all_scored)}候选(≥80:{high80},≥70:{high70})。"
+            f"城市:{city_str}。待搜:{remainder[:6]}。选一个词搜一个城，或stop。"
+            f"JSON:{{\"action\":\"search\"|\"stop\",\"keyword\":\"...\",\"city\":\"北京\"|\"长春\",\"reason\":\"...\"}}"
         )
 
         try:
-            # 用 greeting_generator 的共享客户端调 DeepSeek（轻量调用）
             from .config_loader import get_api_key, get_llm_base_url
             import httpx
             url = f"{get_llm_base_url('deepseek')}/chat/completions"
             headers = {"Authorization": f"Bearer {get_api_key('deepseek')}", "Content-Type": "application/json"}
             body = {"model": "deepseek-chat", "messages": [
-                {"role": "system", "content": "你是Agent决策器。只输出JSON，字数越少越好。"},
+                {"role": "system", "content": "你是Agent决策器。只输出JSON。"},
                 {"role": "user", "content": prompt}],
-                "temperature": 0.1, "max_tokens": 128}
+                "temperature": 0.2, "max_tokens": 150}
             async with httpx.AsyncClient(timeout=httpx.Timeout(8, connect=5)) as client:
                 r = await client.post(url, json=body, headers=headers)
             r.raise_for_status()
             content = r.json()["choices"][0]["message"]["content"] or ""
             result = json.loads(re.search(r'\{[\s\S]*\}', content).group(0))
-            _log.info(f"[Agent] AI决策: {result.get('action','?')} — {result.get('reason','')}")
-            return {"action": result.get("action", "continue"), "reason": result.get("reason", "")}
+            _log.info(f"[Agent] DeepSeek: {result.get('action','?')} {result.get('keyword','')}/{result.get('city','')} — {result.get('reason','')[:60]}")
+            act = result.get("action", "search")
+            return {"action": act, "keyword": result.get("keyword",""),
+                    "city": result.get("city",""), "reason": result.get("reason","")}
         except Exception:
-            _log.info("[Agent] AI决策异常，回退硬规则")
-            return {"action": "continue", "reason": "回退"}
+            _log.info(f"[Agent] AI决策回退: 自动搜{remainder[0]}")
+            return {"action": "search", "keyword": remainder[0],
+                    "city": cities[0]["name"] if cities else "北京", "reason": "回退"}
 
     async def send_greetings(s, jobs: list[dict]):
         """逐条发送招呼语。jobs 格式来自前端: [{encryptJobId, securityId, greeting, company}, ...]
