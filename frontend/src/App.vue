@@ -95,8 +95,13 @@ async function handleStart() {
   step.value = '正在初始化...'; stepMeta.value = '启动浏览器'
   if (timer) clearInterval(timer)
   timer = setInterval(() => { elapsedSec.value++ }, 1000)
-  try { await fetch('/api/start', { method: 'POST' }) }
-  catch (e) { notif.value = { type: 'error', text: '启动失败: ' + (e.message || e) } }
+  try {
+    const r = await fetch('/api/start', { method: 'POST' })
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      notif.value = { type: 'error', text: '启动失败: ' + (d.detail || r.statusText) }
+    }
+  } catch (e) { notif.value = { type: 'error', text: '启动失败: ' + (e.message || e) } }
 }
 
 async function handleStop() {
@@ -115,7 +120,7 @@ async function handleSend() {
   step.value = '正在发送招呼语...'
   stepMeta.value = `选中 ${toSend.length} 个`
   try {
-    await fetch('/api/send', {
+    const r = await fetch('/api/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -125,6 +130,10 @@ async function handleSend() {
         })),
       }),
     })
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      notif.value = { type: 'error', text: '发送失败: ' + (d.detail || r.statusText) }
+    }
   } catch (e) {
     notif.value = { type: 'error', text: '发送失败: ' + (e.message || e) }
   }
