@@ -55,7 +55,15 @@ DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
 
 [DeepSeek API Key 获取地址](https://platform.deepseek.com/api_keys)
 
-## 7. 准备简历
+## 7. 环境检查
+
+```bash
+python check.py
+```
+
+全部显示 ✅ 再继续。如果某项报 ❌，按提示修复。
+
+## 8. 准备简历
 
 把你的简历 PDF 放在项目根目录下，确认 `config.yaml` 里路径正确：
 ```yaml
@@ -63,7 +71,7 @@ resume:
   pdf_path: "./my_resume.pdf"
 ```
 
-## 8. 编辑配置文件
+## 9. 编辑配置文件
 
 `config.yaml` 里可以调整：
 - `search.cities` — 搜索城市和最低薪资
@@ -72,7 +80,7 @@ resume:
 
 不改也能用，默认搜北京+长春。
 
-## 9. 启动
+## 10. 启动
 
 需要两个终端。
 
@@ -90,7 +98,7 @@ npm run dev
 
 浏览器打开 `http://localhost:5173`。
 
-## 10. 开始使用
+## 11. 开始使用
 
 点「开始」按钮。Chrome 会自动打开，如果第一次使用需要扫码登录 BOSS 直聘。
 
