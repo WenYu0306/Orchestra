@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onErrorCaptured } from 'vue'
 import TopBar from './components/TopBar.vue'
 import ProgressBand from './components/ProgressBand.vue'
 import StatCards from './components/StatCards.vue'
@@ -147,6 +147,7 @@ function updateScale() {
 }
 onMounted(() => { import('./style.css'); fetchStatus(); connectSSE(); updateScale(); window.addEventListener('resize', updateScale) })
 onUnmounted(() => { if (sse) sse.close(); window.removeEventListener('resize', updateScale) })
+onErrorCaptured((err) => { console.error('Frontend error:', err); return false })
 </script>
 
 <template>
