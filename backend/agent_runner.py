@@ -306,10 +306,10 @@ class AgentRunner:
             po = j.get("jobName", "")
             if not co:
                 continue
-            ok, warn = check_city(j, city_name)
-            ok, warn = check_company(j)
-            ok, warn = check_salary(j, min_sal)
-            if not ok:
+            ok1, warn = check_city(j, city_name)
+            ok2, warn = check_company(j)
+            ok3, warn = check_salary(j, min_sal)
+            if not (ok1 and ok2 and ok3):
                 continue
             parts = [po, j.get("salaryDesc", ""), j.get("cityName", ""),
                      j.get("jobExperience", ""), j.get("jobDegree", "")]
