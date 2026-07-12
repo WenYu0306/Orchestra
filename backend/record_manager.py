@@ -150,6 +150,9 @@ class RecordManager:
         security_id: str = "",
         encrypt_job_id: str = "",
         greeting: str = "",
+        salary: str = "",
+        search_city: str = "",
+        search_kw: str = "",
     ) -> dict[str, Any]:
         """添加一条投递记录"""
         record = {
@@ -162,6 +165,9 @@ class RecordManager:
             "security_id": security_id,
             "encrypt_job_id": encrypt_job_id,
             "greeting": greeting,
+            "salary": salary,
+            "search_city": search_city,
+            "search_kw": search_kw,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
 

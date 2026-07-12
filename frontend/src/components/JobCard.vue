@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue'
 const props = defineProps({ job: Object })
 
 const TIER_META = {
@@ -17,8 +18,11 @@ function tierBorder(t) {
   return { high: 'var(--indigo-border)', medium: 'var(--blue-border)', try: 'var(--amber-border)' }[t] || 'var(--indigo-border)'
 }
 
+const copied = ref(false)
 function copyGreeting(text) {
   navigator.clipboard?.writeText(text)
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 1500)
 }
 </script>
 
@@ -58,7 +62,7 @@ function copyGreeting(text) {
             <rect x="3.5" y="3.5" width="5.2" height="5.2" rx="1" fill="none" stroke="currentColor" stroke-width="1" />
             <rect x="1.5" y="1.5" width="5.6" height="5.6" rx="1" fill="none" stroke="currentColor" stroke-width="1" />
           </svg>
-          <span>复制</span>
+          <span>{{ copied ? '已复制' : '复制' }}</span>
         </button>
       </div>
       <div class="greeting-text">{{ job.greeting }}</div>

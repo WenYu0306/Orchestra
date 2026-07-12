@@ -399,7 +399,8 @@ class AgentRunner:
             applied += 1
             rec = record_manager.add_record(company=co, position=po, score=score,
                 reason=m["reason"], tier=tier, status="dry_run",
-                security_id=si, encrypt_job_id=encId, greeting=greet)
+                security_id=si, encrypt_job_id=encId, greeting=greet,
+                search_city=city_name, search_kw=kw)
             await sse_manager.emit_record(rec)
             await asyncio.sleep(random.uniform(5, 8))
 
@@ -418,7 +419,8 @@ class AgentRunner:
                 applied += 1
                 rec = record_manager.add_record(company=co, position=po, score=score,
                     reason=m["reason"], tier=tier, status="dry_run",
-                    security_id=si, encrypt_job_id=encId, greeting=greet)
+                    security_id=si, encrypt_job_id=encId, greeting=greet,
+                    search_city=city_name, search_kw=kw)
                 await sse_manager.emit_record(rec)
                 await asyncio.sleep(random.uniform(3, 5))
 
@@ -446,7 +448,9 @@ class AgentRunner:
                       "reason": r.get("reason", ""), "status": r.get("status", ""),
                       "securityId": r.get("security_id", ""),
                       "encryptJobId": r.get("encrypt_job_id", ""),
-                      "search_city": "", "search_kw": "",
+                      "search_city": r.get("search_city", ""),
+                      "search_kw": r.get("search_kw", ""),
+                      "salary": r.get("salary", ""),
                       "greeting": r.get("greeting", "")} for r in record_manager.get_all_records()]
         })
 

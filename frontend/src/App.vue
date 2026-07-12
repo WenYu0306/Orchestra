@@ -45,6 +45,7 @@ function connectSSE() {
       salary: d.salary || '',
       search_city: d.search_city || '',
       search_kw: d.search_kw || '',
+      location: d.search_city || '',
       greeting: d.greeting || '',
       securityId: d.security_id || '',
       encryptJobId: d.encrypt_job_id || '',
@@ -65,7 +66,7 @@ function connectSSE() {
       status.value = 'completed'
     } else if (d.jobs && d.jobs.length) {
       // 评分完成
-      jobs.value = d.jobs.map(j => ({...j, _selected: false, id: j.securityId || j.company}))
+      jobs.value = d.jobs.map(j => ({...j, companyInitial: (j.company || '?')[0], _selected: false, id: j.securityId || j.company}))
       status.value = 'done'
       progress.value = 100
       step.value = '评估完成 · 勾选要发送的职位'
