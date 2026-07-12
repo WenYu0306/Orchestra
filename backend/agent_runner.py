@@ -70,13 +70,41 @@ class AgentRunner:
             keywords = await s._prepare_keywords(cfg)
             _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")
 
-            all_scored, city_warnings, salary_skipped = await s._search_and_score(
-                cfg, keywords)
+            # === Agent 批量搜索循环 ===
+            MIN_CANDIDATES = 200
+            BATCH_SIZE = 3
+            all_scored = []
+            city_warnings = set()
+            salary_skipped = 0
+            loop = 0
+
+            for i in range(0, len(keywords), BATCH_SIZE):
+                if s._stop:
+                    break
+                batch = keywords[i:i + BATCH_SIZE]
+                loop += 1
+                _log.info(f"[Agent] 第{loop}批搜索: {batch}")
+
+                scored, warns, skipped = await s._search_and_score(cfg, batch)
+                all_scored.extend(scored)
+                city_warnings |= warns
+                salary_skipped += skipped
+
+                high70 = sum(1 for x in all_scored if x[0] >= 70)
+                _log.info(f"[Agent] 进度: {len(all_scored)}候选, {high70}个≥70分")
+
+                if len(all_scored) >= MIN_CANDIDATES:
+                    _log.info(f"[Agent] 候选池达{len(all_scored)}，停止搜索")
+                    break
+                if loop >= 10:
+                    _log.info(f"[Agent] 已达最大轮次，停止搜索")
+                    break
 
             for w in city_warnings:
                 _log.warning(w)
             if salary_skipped:
                 _log.info(f"薪资过滤: {salary_skipped} 个岗位")
+            all_scored.sort(key=lambda x: x[0], reverse=True)
             _log.info(f"标签评分完成，共 {len(all_scored)} 个候选")
 
             enriched = await s._detail_reevaluate(all_scored)
