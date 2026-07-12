@@ -313,6 +313,7 @@ class AgentRunner:
             ok2, warn = check_company(j)
             ok3, warn = check_salary(j, min_sal)
             if not (ok1 and ok2 and ok3):
+                _log.debug(f"跳过 {co}/{po}: city={ok1} company={ok2} salary={ok3}")
                 continue
             parts = [po, j.get("salaryDesc", ""), j.get("cityName", ""),
                      j.get("jobExperience", ""), j.get("jobDegree", "")]
@@ -477,8 +478,17 @@ class AgentRunner:
             result = json.loads(re.search(r'\{[\s\S]*\}', content).group(0))
             _log.info(f"[Agent] DeepSeek: {result.get('action','?')} {result.get('keyword','')}/{result.get('city','')} — {result.get('reason','')[:60]}")
             act = result.get("action", "search")
-            return {"action": act, "keyword": result.get("keyword",""),
+            decision = {"action": act, "keyword": result.get("keyword",""),
                     "city": result.get("city",""), "reason": result.get("reason","")}
+            # 持久化决策日志
+            try:
+                dl = _log_dir / "agent_decisions.jsonl"
+                with open(dl, "a") as f:
+                    decision["pool_size"] = len(all_scored)
+                    decision["high80"] = high80; decision["high70"] = high70
+                    f.write(json.dumps(decision, ensure_ascii=False) + "\n")
+            except Exception: pass
+            return decision
         except Exception:
             _log.info(f"[Agent] AI决策回退: 自动搜{remainder[0]}")
             return {"action": "search", "keyword": remainder[0],
