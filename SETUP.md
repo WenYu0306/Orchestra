@@ -101,7 +101,7 @@ npm run dev
 **Q: Chrome 启动失败 "Failed to connect to browser"**
 ```bash
 pkill -9 -f "Google Chrome"
-rm -rf /tmp/jh-run-1
+rm -rf /tmp/jh-*
 ```
 然后重启后端。
 

@@ -53,6 +53,9 @@ class AgentRunner:
         s._stop = True; s._pe.set()
         try: await sse_manager.emit_status(AppStatus.IDLE, {"message":"已停止"})
         except: pass
+        if s._browser:
+            try: await s.close_browser()
+            except: pass
 
     async def resume_after_captcha(s):
         s._pe.set()
@@ -177,7 +180,7 @@ class AgentRunner:
         s._browser = await uc.start(headless=False,
             browser_executable_path=chrome_path,
             user_data_dir=str(__import__('pathlib').Path(
-                __import__('tempfile').gettempdir()) / "jh-run-1"),
+                __import__('tempfile').gettempdir()) / f"jh-{__import__('time').time():.0f}"),
             no_sandbox=True,
             browser_args=["--disable-blink-features=AutomationControlled", "--no-first-run"])
         s._tab = s._browser.main_tab
