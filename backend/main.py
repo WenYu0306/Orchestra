@@ -29,6 +29,20 @@ async def lifespan(app: FastAPI):
         print(f"  - 平台: {config.platform.get('name', 'unknown')}")
         print(f"  - 搜索城市: {[c['name'] for c in config.search.get('cities', [])]}")
         print(f"  - Web UI: {config.web_ui.host}:{config.web_ui.port}")
+
+        # 启动健康检查
+        import os, shutil
+        from pathlib import Path
+        dsk = os.getenv("DEEPSEEK_API_KEY", "")
+        if not dsk or dsk.startswith("your_"):
+            print("⚠ DEEPSEEK_API_KEY 未设置，请编辑 .env 文件")
+        resume_path = Path(config.resume.get("pdf_path", "my_resume.pdf"))
+        if not resume_path.is_absolute():
+            resume_path = Path(__file__).parent.parent / resume_path
+        if not resume_path.exists():
+            print(f"⚠ 简历未找到: {resume_path}")
+        if not shutil.which("google-chrome") and not shutil.which("Google Chrome") and not Path("/Applications/Google Chrome.app").exists():
+            print("⚠ 未检测到 Google Chrome")
     except Exception as e:
         print(f"⚠ 配置加载警告: {e}")
 
@@ -86,7 +100,8 @@ class StartResponse(BaseModel):
 # ============ REST API ============
 
 
-@app.get("/api/status", response_model=StatusResponse)
+@app.get("/api/status", response_model=StatusResponse,
+          summary="获取运行状态", description="返回 Agent 是否运行中、已匹配数量、分层统计")
 async def get_status():
     """获取当前运行状态"""
     return StatusResponse(
@@ -99,7 +114,8 @@ async def get_status():
     )
 
 
-@app.post("/api/start", response_model=StartResponse)
+@app.post("/api/start", response_model=StartResponse,
+          summary="启动任务", description="启动 Agent 搜索评分流程：开浏览器→登录→搜→评→分层→问候语")
 async def start_task():
     """启动投递任务"""
     try:
@@ -111,7 +127,8 @@ async def start_task():
         raise HTTPException(status_code=500, detail=f"启动失败: {str(e)}")
 
 
-@app.post("/api/stop", response_model=StartResponse)
+@app.post("/api/stop", response_model=StartResponse,
+          summary="停止任务", description="停止正在运行的 Agent 任务，关闭 Chrome")
 async def stop_task():
     """停止投递任务"""
     try:
@@ -121,7 +138,8 @@ async def stop_task():
         raise HTTPException(status_code=500, detail=f"停止失败: {str(e)}")
 
 
-@app.post("/api/resume", response_model=StartResponse)
+@app.post("/api/resume", response_model=StartResponse,
+          summary="继续任务", description="手动处理完验证码后调用此接口恢复运行")
 async def resume_task():
     """处理完验证码后继续"""
     if not agent_runner.is_paused:
@@ -134,7 +152,8 @@ async def resume_task():
         raise HTTPException(status_code=500, detail=f"继续失败: {str(e)}")
 
 
-@app.get("/api/records")
+@app.get("/api/records",
+         summary="获取投递记录", description="返回当前会话所有已评分的岗位记录")
 async def get_records():
     """获取所有投递记录"""
     return {
@@ -143,7 +162,8 @@ async def get_records():
     }
 
 
-@app.get("/api/pending")
+@app.get("/api/pending",
+         summary="获取待选区", description="低置信度候选保留在此，最多 5 条")
 async def get_pending():
     """获取待选区列表"""
     return {
@@ -154,7 +174,8 @@ async def get_pending():
 
 # ============ SSE 端点 ============
 
-@app.get("/api/events")
+@app.get("/api/events",
+         summary="SSE 实时推送", description="前端通过 EventSource 订阅：status/record/complete/error 四种事件")
 async def sse_events():
     """SSE 事件流 —— 前端通过 EventSource 订阅"""
     return await sse_manager.subscribe()
@@ -172,7 +193,8 @@ class SendRequest(BaseModel):
     jobs: list[SendJob]
 
 
-@app.post("/api/send")
+@app.post("/api/send",
+          summary="批量发送招呼语", description="将前端选中的岗位逐条发送：friend/add.json 建关系 → CDP 输入自定义文案")
 async def send_greetings(req: SendRequest):
     """发送招呼语给前端选中的职位"""
     if not agent_runner._tab:
@@ -186,7 +208,8 @@ async def send_greetings(req: SendRequest):
     return await agent_runner.send_greetings(jobs)
 
 
-@app.post("/api/close")
+@app.post("/api/close",
+          summary="关闭浏览器", description="手动关闭 nodriver Chrome 浏览器")
 async def close_browser():
     """关闭浏览器"""
     await agent_runner.close_browser()
@@ -195,7 +218,8 @@ async def close_browser():
 
 # ============ 快速测试（验证 AI 链路） ============
 
-@app.get("/api/test")
+@app.get("/api/test",
+         summary="AI 链路验证", description="不开浏览器纯测 AI：读简历→搜词生成→JD 打分")
 async def test_pipeline():
     """快速测试：简历读取 → 搜索词生成 → JD 匹配打分，不开浏览器"""
     import time
@@ -268,7 +292,8 @@ async def root():
 
 # ============ 健康检查 ============
 
-@app.get("/api/health")
+@app.get("/api/health",
+         summary="健康检查", description="返回服务运行状态")
 async def health():
     return {"status": "ok", "service": "Orchestra"}
 
