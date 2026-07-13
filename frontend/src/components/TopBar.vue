@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 const props = defineProps({ status: String, matched: Number })
-const emit = defineEmits(['start', 'stop'])
+const emit = defineEmits(['start', 'stop', 'uploadResume'])
 
 const pill = computed(() => {
   switch (props.status) {
@@ -38,6 +38,11 @@ const isRunning = computed(() => props.status === 'running')
 
     <!-- 控制区 -->
     <div class="ctrl-wrap">
+      <label class="upload-btn" title="上传简历">
+        <input type="file" accept=".pdf" @change="$emit('uploadResume', $event)" style="display:none" />
+        <svg viewBox="0 0 14 14" width="14" height="14"><path d="M3 9 L7 5 L11 9 M7 5 L7 13 M2 3 H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span>简历</span>
+      </label>
       <div class="status-pill" :class="pill.cls">
         <span class="dot"></span>
         <span class="status-text">{{ pill.text }}</span>
@@ -171,4 +176,13 @@ const isRunning = computed(() => props.status === 'running')
   border: 1px solid #E0E1E8;
 }
 .btn-start:not(:disabled) { color: var(--text-2); }
+.upload-btn {
+  display: flex; align-items: center; gap: 4px;
+  height: 35px; padding: 0 12px;
+  border-radius: 12px; border: 1px solid #E0E1E8;
+  background: #F8FAFC; color: var(--text-2);
+  font-size: 12px; cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.upload-btn:hover { border-color: var(--indigo-border); color: var(--indigo); }
 </style>

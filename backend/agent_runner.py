@@ -5,14 +5,14 @@ Agent — 单阶段: 搜→标签评分→全局排序→top 20 详情重评→�
 import asyncio, json, logging, os, random, re, sys, traceback
 from logging.handlers import TimedRotatingFileHandler
 import fitz, httpx, nodriver as uc
+
+_agent_shared_client = None
 from .config_loader import get_config, get_api_key, get_llm_base_url, get_project_root
 from .greeting_generator import generate as gen_greeting
 from .matcher import match as ds_match
 from .record_manager import record_manager
 from .sse_manager import sse_manager, AppStatus
 from .validator import check_city, check_salary, check_company
-
-_agent_shared_client = None
 
 # ---- logging setup ----
 _log = logging.getLogger("agent")
@@ -38,7 +38,6 @@ class AgentRunner:
         s._pe = asyncio.Event(); s._pe.set()
         s._resume = ""
         s._tc = {"high":0,"medium":0,"try":0}; s._ac = set()
-        s.custom_settings = None   # 前端传入的城市/关键词覆盖
 
     @property
     def is_running(s): return s._task is not None and not s._task.done()
@@ -72,13 +71,6 @@ class AgentRunner:
         try:
             s._resume = s._read_resume()
             cfg = get_config()
-
-            # 前端传入的城市/关键词覆盖
-            if s.custom_settings:
-                if s.custom_settings.get("cities"):
-                    cfg.search["cities"] = s.custom_settings["cities"]
-                if s.custom_settings.get("primary_keywords"):
-                    cfg.search["primary_keywords"] = s.custom_settings["primary_keywords"]
 
             if not await s._launch_and_login():
                 return
@@ -489,17 +481,19 @@ class AgentRunner:
         )
 
         try:
-            global _agent_shared_client
-            if _agent_shared_client is None:
-                _agent_shared_client = httpx.AsyncClient(
-                    timeout=httpx.Timeout(8, connect=5),
-                    limits=httpx.Limits(max_connections=20, max_keepalive_connections=5))
+            from .config_loader import get_api_key, get_llm_base_url
+            import httpx
             url = f"{get_llm_base_url('deepseek')}/chat/completions"
             headers = {"Authorization": f"Bearer {get_api_key('deepseek')}", "Content-Type": "application/json"}
             body = {"model": "deepseek-chat", "messages": [
                 {"role": "system", "content": "你是Agent决策器。只输出JSON。"},
                 {"role": "user", "content": prompt}],
                 "temperature": 0.2, "max_tokens": 150}
+            global _agent_shared_client
+            if _agent_shared_client is None:
+                _agent_shared_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(8, connect=5),
+                    limits=httpx.Limits(max_connections=20, max_keepalive_connections=5))
             r = await _agent_shared_client.post(url, json=body, headers=headers)
             r.raise_for_status()
             content = r.json()["choices"][0]["message"]["content"] or ""
