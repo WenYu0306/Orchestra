@@ -188,7 +188,7 @@ class AgentRunner:
         s._browser = await uc.start(headless=False,
             browser_executable_path=chrome_path,
             user_data_dir=str(__import__('pathlib').Path(
-                __import__('tempfile').gettempdir()) / f"jh-{__import__('time').time():.0f}"),
+                __import__('tempfile').gettempdir()) / "jh-run-1"),
             no_sandbox=True,
             browser_args=["--disable-blink-features=AutomationControlled", "--no-first-run"])
         s._tab = s._browser.main_tab
@@ -584,21 +584,82 @@ class AgentRunner:
                     results.append({"company":company,"ok":False,"reason":"未找到沟通按钮"})
                     continue
 
-                # 按钮点后弹出对话框，输入框自动获得焦点
-                # 直接用 CDP insert_text 打自定义文案，不走 friend/add.json（那条会自动发系统默认语）
-                await s._tab.sleep(2)
-                from nodriver.cdp import input_ as cdp_input
-                await s._tab.send(cdp_input.insert_text(text=greeting))
-                await s._tab.sleep(0.5)
-                await s._tab.send(cdp_input.dispatch_key_event(
-                    type_="keyDown", key="Enter", code="Enter",
-                    windows_virtual_key_code=13))
-                await s._tab.sleep(0.1)
-                await s._tab.send(cdp_input.dispatch_key_event(
-                    type_="keyUp", key="Enter", code="Enter",
-                    windows_virtual_key_code=13))
-                _log.info(f"[Send] {idx+1}/{total} CDP对话完成")
-                results.append({"company":company,"ok":True,"detail":"cdp_dialog"})
+                # 取 api_url + redirect-url（聊天页）
+                api_url = await s._tab.evaluate("""
+                    (function(){
+                        var el=document.querySelector('.btn-startchat[data-url]');
+                        var r={};
+                        if(el){r.api=el.getAttribute('data-url')||'';r.chat=el.getAttribute('redirect-url')||''}
+                        if(!r.api){
+                            var all=document.querySelectorAll('.btn');
+                            for(var i=0;i<all.length;i++){
+                                if(all[i].getAttribute('data-url')&&(all[i].getAttribute('data-url')||'').indexOf('friend')>=0){
+                                    r.api=all[i].getAttribute('data-url');
+                                    r.chat=all[i].getAttribute('redirect-url')||'';
+                                    break;
+                                }
+                            }
+                        }
+                        return JSON.stringify(r);
+                    })()
+                """)
+                _log.info(f"[Send] {idx+1}/{total} URLs: {str(api_url)[:200]}")
+
+                urls = json.loads(api_url) if api_url else {}
+                add_url = urls.get("api","") or urls.get("api_url","")
+                chat_path = urls.get("chat","") or urls.get("redirect-url","")
+
+                if add_url:
+                    # XHR 调 friend/add.json 建立沟通关系
+                    xhr_result = await s._tab.evaluate(f"""
+                        (function(){{
+                            var x=new XMLHttpRequest();
+                            x.open('POST','{add_url}',false);
+                            x.setRequestHeader('Content-Type','application/json');
+                            try{{x.send(JSON.stringify({{}}))}}catch(e){{return'xhr_err:'+e.message}}
+                            return'xhr_ok:'+x.status;
+                        }})()
+                    """)
+                    _log.info(f"[Send] {idx+1}/{total} friend/add: {xhr_result}")
+                    send_ok = xhr_result or 'friend_add_done'
+                else:
+                    send_ok = "no_api_url"
+                    _log.warning(f"[Send] {idx+1}/{total} 无data-url")
+
+                # 如果有聊天页 URL，跳过去发自定义招呼语
+                if chat_path:
+                    chat_full = f"https://www.zhipin.com{chat_path}" if chat_path.startswith('/') else chat_path
+                    _log.info(f"[Send] {idx+1}/{total} 聊天页: {chat_full[:120]}")
+                    await s._tab.get(chat_full); await s._tab.sleep(5)
+
+                    # CDP Input.insertText + dispatchKeyEvent（内核键盘，React 认）
+                    try:
+                        # 先聚焦输入框
+                        await s._tab.evaluate("""
+                            (function(){
+                                var inp=document.querySelector('textarea,[contenteditable="true"]');
+                                if(inp)inp.focus();
+                            })()
+                        """)
+                        await s._tab.sleep(0.5)
+
+                        # CDP 文本输入 + 回车键（内核级，React 认）
+                        from nodriver.cdp import input_ as cdp_input
+                        await s._tab.send(cdp_input.insert_text(text=greeting))
+                        await s._tab.sleep(0.3)
+                        await s._tab.send(cdp_input.dispatch_key_event(
+                            type_="keyDown", key="Enter", code="Enter",
+                            windows_virtual_key_code=13))
+                        await s._tab.sleep(0.1)
+                        await s._tab.send(cdp_input.dispatch_key_event(
+                            type_="keyUp", key="Enter", code="Enter",
+                            windows_virtual_key_code=13))
+                        _log.info(f"[Send] {idx+1}/{total} CDP完成")
+                    except Exception as cdp_err:
+                        _log.warning(f"[Send] {idx+1}/{total} CDP失败: {cdp_err}")
+                else:
+                    _log.info(f"[Send] {idx+1}/{total} 无聊天URL, 只用系统默认")
+                results.append({"company":company,"ok":True,"detail":send_ok})
                 await sse_manager.emit_status(AppStatus.RUNNING,
                     {"message":f"已发送: {idx+1}/{total} {company}"})
 
