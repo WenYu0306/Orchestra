@@ -110,13 +110,16 @@ async def upload_resume(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="请上传 PDF 文件")
     save_path = Path(__file__).parent.parent / "my_resume.pdf"
-    try:
-        content = await file.read()
-        with open(save_path, "wb") as f:
-            f.write(content)
-        return UploadResumeResponse(ok=True, filename=file.filename)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"保存失败: {e}")
+    # 删旧文件——可能被锁或正在用，先试删
+    if save_path.exists():
+        try:
+            save_path.unlink()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"无法替换旧文件: {e}")
+    content = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(content)
+    return UploadResumeResponse(ok=True, filename=file.filename)
 
 
 @app.get("/api/status", response_model=StatusResponse,
