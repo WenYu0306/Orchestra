@@ -6,9 +6,10 @@ Orchestra Backend —— FastAPI 入口。
 """
 
 import webbrowser
+from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -97,7 +98,30 @@ class StartResponse(BaseModel):
     message: str
 
 
+class StartSettings(BaseModel):
+    cities: list[dict] = []   # [{"name":"北京","min_salary":15000}]
+    primary_keywords: list[str] = []
+
+class UploadResumeResponse(BaseModel):
+    ok: bool
+    filename: str = ""
+
 # ============ REST API ============
+
+@app.post("/api/upload-resume", response_model=UploadResumeResponse,
+          summary="上传简历", description="上传 PDF 简历文件，自动保存到项目根目录")
+async def upload_resume(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="请上传 PDF 文件")
+    import shutil
+    save_path = Path(__file__).parent.parent / "my_resume.pdf"
+    try:
+        with open(save_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        return UploadResumeResponse(ok=True, filename=file.filename)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"保存失败: {e}")
 
 
 @app.get("/api/status", response_model=StatusResponse,
@@ -116,9 +140,16 @@ async def get_status():
 
 @app.post("/api/start", response_model=StartResponse,
           summary="启动任务", description="启动 Agent 搜索评分流程：开浏览器→登录→搜→评→分层→问候语")
-async def start_task():
+async def start_task(settings: StartSettings | None = None):
     """启动投递任务"""
     try:
+        if settings and settings.cities:
+            agent_runner.custom_settings = {
+                "cities": settings.cities,
+                "primary_keywords": settings.primary_keywords or []
+            }
+        else:
+            agent_runner.custom_settings = None
         await agent_runner.start()
         return StartResponse(success=True, message="投递任务已启动")
     except RuntimeError as e:

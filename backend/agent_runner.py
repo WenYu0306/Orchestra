@@ -38,6 +38,7 @@ class AgentRunner:
         s._pe = asyncio.Event(); s._pe.set()
         s._resume = ""
         s._tc = {"high":0,"medium":0,"try":0}; s._ac = set()
+        s.custom_settings = None   # 前端传入的城市/关键词覆盖
 
     @property
     def is_running(s): return s._task is not None and not s._task.done()
@@ -71,6 +72,13 @@ class AgentRunner:
         try:
             s._resume = s._read_resume()
             cfg = get_config()
+
+            # 前端传入的城市/关键词覆盖
+            if s.custom_settings:
+                if s.custom_settings.get("cities"):
+                    cfg.search["cities"] = s.custom_settings["cities"]
+                if s.custom_settings.get("primary_keywords"):
+                    cfg.search["primary_keywords"] = s.custom_settings["primary_keywords"]
 
             if not await s._launch_and_login():
                 return

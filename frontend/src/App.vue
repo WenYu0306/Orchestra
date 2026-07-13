@@ -91,14 +91,52 @@ async function fetchStatus() {
   catch (e) {}
 }
 
+// ====== 设置面板 ======
+const showSettings = ref(true)
+const myCities = ref([
+  { name: '北京', min_salary: 15000, active: true },
+  { name: '上海', min_salary: 15000, active: false },
+  { name: '深圳', min_salary: 15000, active: false },
+  { name: '广州', min_salary: 15000, active: false },
+  { name: '杭州', min_salary: 15000, active: false },
+  { name: '长春', min_salary: 8000, active: true },
+  { name: '成都', min_salary: 10000, active: false },
+])
+const defSalary = ref(15000)
+const resumeFile = ref(null)
+const resumeUploaded = ref(false)
+
+function toggleCity(idx) {
+  myCities.value[idx].active = !myCities.value[idx].active
+}
+
+async function handleUploadResume(e) {
+  const f = e.target.files[0]
+  if (!f) return
+  const fd = new FormData(); fd.append('file', f)
+  try {
+    const r = await fetch('/api/upload-resume', { method: 'POST', body: fd })
+    if (r.ok) { resumeUploaded.value = true; resumeFile.value = f.name }
+    else notif.value = { type: 'error', text: '上传失败: ' + await r.text() }
+  } catch (ee) {
+    notif.value = { type: 'error', text: '上传失败' }
+  }
+}
+
 async function handleStart() {
   jobs.value = []
+  showSettings.value = false
   progress.value = 0; elapsedSec.value = 0
   step.value = '正在初始化...'; stepMeta.value = '启动浏览器'
   if (timer) clearInterval(timer)
   timer = setInterval(() => { elapsedSec.value++ }, 1000)
+  const activeCities = myCities.value.filter(c => c.active).map(c => ({ name: c.name, min_salary: defSalary.value }))
+  const body = activeCities.length > 0 ? JSON.stringify({
+    cities: activeCities,
+    primary_keywords: [],
+  }) : undefined
   try {
-    const r = await fetch('/api/start', { method: 'POST' })
+    const r = await fetch('/api/start', { method: 'POST', headers: body ? { 'Content-Type': 'application/json' } : {}, body })
     if (!r.ok) {
       const d = await r.json().catch(() => ({}))
       notif.value = { type: 'error', text: '启动失败: ' + (d.detail || r.statusText) }
@@ -154,6 +192,39 @@ onErrorCaptured((err) => { console.error('Frontend error:', err); return false }
   <div class="aurora"><div class="aurora-blob"></div></div>
   <div class="scaler" :style="{ transform: `scale(${scale})` }">
     <div class="shell">
+      <!-- 设置面板 -->
+      <Transition name="card-in">
+        <div v-if="showSettings && status === 'idle'" class="settings-panel glass">
+          <div class="settings-title">求职设置</div>
+          <div class="settings-row">
+            <label class="settings-label">
+              <span>上传简历</span>
+              <div class="upload-wrap">
+                <input type="file" accept=".pdf" @change="handleUploadResume" id="resume-input" style="display:none" />
+                <label for="resume-input" class="upload-btn">{{ resumeUploaded ? '✅ ' + resumeFile : '选择 PDF 文件' }}</label>
+              </div>
+              <span class="settings-hint" v-if="!resumeUploaded">不选则默认用 my_resume.pdf</span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">城市选择</span>
+            <div class="city-chips">
+              <label v-for="(c, i) in myCities" :key="c.name" class="city-chip" :class="{ active: c.active }" @click="toggleCity(i)">
+                {{ c.name }}
+              </label>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label class="settings-label">
+              <span>最低薪资 {{ defSalary }} 元/月</span>
+              <input type="range" v-model.number="defSalary" min="5000" max="50000" step="1000" />
+            </label>
+          </div>
+          <div class="settings-row">
+            <button class="start-btn-big" @click="handleStart">开始</button>
+          </div>
+        </div>
+      </Transition>
       <TopBar :status="status" :matched="matched" @start="handleStart" @stop="handleStop" />
       <ProgressBand :progress="progress" :step="step" :step-meta="stepMeta" :elapsed="elapsed" :remaining="remaining" />
       <StatCards :jobs="jobs" />
@@ -203,4 +274,42 @@ onErrorCaptured((err) => { console.error('Frontend error:', err); return false }
 .banner.error .banner-dot { background: var(--red); box-shadow: 0 0 8px var(--red); }
 .banner-enter-active, .banner-leave-active { transition: all .4s cubic-bezier(.2,.8,.2,1); }
 .banner-enter-from, .banner-leave-to { opacity: 0; transform: translateX(-50%) translateY(20px); }
+
+/* 设置面板 */
+.settings-panel {
+  margin: 0 32px 16px;
+  padding: 24px;
+  border-radius: 20px;
+  display: flex; flex-direction: column; gap: 20px;
+}
+.settings-title { font-size: 16px; font-weight: 600; color: var(--text-1); }
+.settings-row { display: flex; flex-direction: column; gap: 8px; }
+.settings-label { font-size: 13px; color: var(--text-2); display: flex; flex-direction: column; gap: 6px; }
+.settings-hint { font-size: 11px; color: var(--text-3); }
+.upload-wrap { display: flex; align-items: center; gap: 10px; }
+.upload-btn {
+  display: inline-block; padding: 8px 16px;
+  background: var(--indigo-soft); color: var(--indigo);
+  border: 1px solid var(--indigo-border); border-radius: 8px;
+  font-size: 13px; cursor: pointer; font-weight: 500;
+}
+.city-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.city-chip {
+  padding: 6px 14px; border-radius: 999px;
+  background: #F0F1F5; color: var(--text-2);
+  font-size: 12px; cursor: pointer; border: 1px solid transparent;
+  transition: all .2s;
+}
+.city-chip.active {
+  background: var(--indigo-soft); color: var(--indigo);
+  border-color: var(--indigo-border);
+}
+input[type="range"] { width: 100%; accent-color: var(--indigo); }
+.start-btn-big {
+  width: 100%; height: 48px;
+  background: var(--indigo); color: #fff;
+  border-radius: 14px; font-size: 16px; font-weight: 600;
+  cursor: pointer; transition: opacity .2s;
+}
+.start-btn-big:hover { opacity: 0.88; }
 </style>
