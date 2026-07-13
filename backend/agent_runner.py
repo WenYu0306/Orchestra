@@ -632,28 +632,44 @@ class AgentRunner:
                     _log.info(f"[Send] {idx+1}/{total} 聊天页: {chat_full[:120]}")
                     await s._tab.get(chat_full); await s._tab.sleep(5)
 
-                    # CDP Input.insertText + dispatchKeyEvent（内核键盘，React 认）
+                    # CDP insert_text + dispatch_key_event
                     try:
-                        # 先聚焦输入框
-                        await s._tab.evaluate("""
+                        # 聚焦聊天输入框：排除页面顶部搜索栏，定位聊天容器内的输入元素
+                        found = await s._tab.evaluate("""
                             (function(){
-                                var inp=document.querySelector('textarea,[contenteditable="true"]');
-                                if(inp)inp.focus();
+                                // 在聊天容器内搜索（class含chat/msg/zpchat/conversation的父节点）
+                                var container=document.querySelector('[class*="chat"],[class*="msg"],[class*="zpchat"],[class*="conversation"]');
+                                var scope=container||document;
+                                var inp=scope.querySelector('textarea,[contenteditable="true"],[role="textbox"]');
+                                if(!inp){inp=scope.querySelector('div[class*="input"],div[class*="edit"]');}
+                                if(inp){inp.focus();return inp.tagName+'.'+inp.className.split(' ')[0]+'.role='+(inp.getAttribute('role')||'')}
+                                // 兜底：排除搜索框后找可编辑元素
+                                var all=document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"]');
+                                for(var i=0;i<all.length;i++){
+                                    if(!all[i].className.includes('search')&&!all[i].className.includes('boss-search')){
+                                        all[i].focus();return all[i].tagName+'.'+all[i].className.split(' ')[0]+'.role='+(all[i].getAttribute('role')||'')
+                                    }
+                                }
+                                return 'NOT_FOUND';
                             })()
                         """)
+                        _log.info(f"[Send] {idx+1}/{total} 输入框: {found}")
                         await s._tab.sleep(0.5)
 
-                        # CDP 文本输入 + 回车键（内核级，React 认）
+                        # CDP 文本输入 + 回车三连（keyDown→char→keyUp）
                         from nodriver.cdp import input_ as cdp_input
                         await s._tab.send(cdp_input.insert_text(text=greeting))
-                        await s._tab.sleep(0.3)
+                        await s._tab.sleep(0.5)
                         await s._tab.send(cdp_input.dispatch_key_event(
                             type_="keyDown", key="Enter", code="Enter",
-                            windows_virtual_key_code=13))
-                        await s._tab.sleep(0.1)
+                            text="\r", windows_virtual_key_code=13))
+                        await s._tab.sleep(0.08)
+                        await s._tab.send(cdp_input.dispatch_key_event(
+                            type_="char", text="\r"))
+                        await s._tab.sleep(0.08)
                         await s._tab.send(cdp_input.dispatch_key_event(
                             type_="keyUp", key="Enter", code="Enter",
-                            windows_virtual_key_code=13))
+                            text="\r", windows_virtual_key_code=13))
                         _log.info(f"[Send] {idx+1}/{total} CDP完成")
                     except Exception as cdp_err:
                         _log.warning(f"[Send] {idx+1}/{total} CDP失败: {cdp_err}")
