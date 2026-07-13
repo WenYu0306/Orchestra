@@ -58,9 +58,6 @@ class AgentRunner:
         s._stop = True; s._pe.set()
         try: await sse_manager.emit_status(AppStatus.IDLE, {"message":"已停止"})
         except: pass
-        if s._browser:
-            try: await s.close_browser()
-            except: pass
 
     async def resume_after_captcha(s):
         s._pe.set()
@@ -322,11 +319,12 @@ class AgentRunner:
             po = j.get("jobName", "")
             if not co:
                 continue
-            ok1, warn = check_city(j, city_name)
-            ok2, warn = check_company(j)
-            ok3, warn = check_salary(j, min_sal)
+            ok1, warn1 = check_city(j, city_name)
+            ok2, warn2 = check_company(j)
+            ok3, warn3 = check_salary(j, min_sal)
             if not (ok1 and ok2 and ok3):
-                _log.debug(f"跳过 {co}/{po}: city={ok1} company={ok2} salary={ok3}")
+                for w in (warn1, warn2, warn3):
+                    if w: _log.debug(w)
                 continue
             parts = [po, j.get("salaryDesc", ""), j.get("cityName", ""),
                      j.get("jobExperience", ""), j.get("jobDegree", "")]
@@ -391,11 +389,12 @@ class AgentRunner:
 
         detail_rich = [x for x in enriched if len(x[3]) > 200]
         for score, co, po, jd, kw, city_name, m, si, encId in detail_rich:
-            if s._stop or applied >= max_total:
-                break
+            if s._stop: break
             if co in s._ac or record_manager.is_company_recent(co):
                 continue
-            tier = s._assign_tier(applied, high_quota, med_quota)
+            tier = s._assign_tier(score, cfg)
+            if record_manager.is_tier_full(tier):
+                continue
             s._ac.add(co)
             greet = await s._generate_greeting(jd)
             _log.info(f"干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字")
@@ -411,11 +410,12 @@ class AgentRunner:
         if applied < max_total:
             label_scored = [x for x in enriched if len(x[3]) <= 200]
             for score, co, po, jd, kw, city_name, m, si, encId in label_scored:
-                if s._stop or applied >= max_total:
-                    break
+                if s._stop: break
                 if co in s._ac or record_manager.is_company_recent(co):
                     continue
-                tier = s._assign_tier(applied, high_quota, med_quota)
+                tier = s._assign_tier(score, cfg)
+                if record_manager.is_tier_full(tier):
+                    continue
                 s._ac.add(co)
                 greet = await s._generate_greeting(jd)
                 _log.info(f"干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字")
@@ -430,10 +430,14 @@ class AgentRunner:
 
         return applied
 
-    def _assign_tier(s, applied: int, high_quota: int, med_quota: int) -> str:
-        if applied < high_quota:
+    def _assign_tier(s, score: int, cfg=None) -> str:
+        """按分数阈值分层，不使用位置序列。high≥80, medium≥60, try<60"""
+        if cfg is None:
+            cfg = get_config()
+        tiers = cfg.matching.tiers
+        if score >= tiers["high"].min_score:
             return "high"
-        if applied < high_quota + med_quota:
+        if score >= tiers["medium"].min_score:
             return "medium"
         return "try"
 
