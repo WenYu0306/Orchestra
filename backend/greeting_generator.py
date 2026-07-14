@@ -9,16 +9,13 @@ from .config_loader import get_api_key, get_llm_base_url
 
 _shared_client = None
 
-GREETING_PROMPT = """你是正在找工作的开发者。看了下方的岗位描述和你的背景。脑子里冒出的第一句是什么？写下来。10-30 字，别说客套话。
+GREETING_PROMPT = """你的背景跟下面这个岗位有某个点是接得上的。找到那个点，用一句话说出来。不要说"Hi"、不说"方便聊聊"、不客气、不构思——就是你看到了有意思的东西，随手发了一句。
 
 ## 你的背景
 {resume}
 
-## 让你感兴趣的岗位
+## 岗位
 {jd_text}
-
-好参考："看了你们的JD，我做的项目正好是Agent编排这一套，聊聊？"
-当然你的话可以跟这个完全不同。
 
 JSON: {{"greeting": "..."}}"""
 
