@@ -9,23 +9,17 @@ from .config_loader import get_api_key, get_llm_base_url
 
 _shared_client = None
 
-GREETING_PROMPT = """你用求职者本人的语气给 HR 发私信。40-60 字，像朋友简单说两句，不要长。
+GREETING_PROMPT = """你是正在找工作的开发者。看了下方的岗位描述和你的背景。脑子里冒出的第一句是什么？写下来。10-30 字，别说客套话。
 
-## 简历（只写真实的）
+## 你的背景
 {resume}
 
-## 岗位
+## 让你感兴趣的岗位
 {jd_text}
 
-## 硬规矩
-- 第一条必须呼应岗位里一个具体点（比如他们用的技术栈、做的业务方向），不是泛泛说"我对这个岗位感兴趣"
-- 不要列举项目数量（"三个月做了三个项目"这种删掉）
-- 不要AI模板词：赋能/闭环/抓手/深度/全面/助力/协同/沉淀/裸辞转行
-- 不要"希望能进一步沟通"/"期待您的回复"这类客套结尾——前面说得自然、最后直接话尾即可
-- 不要说"精通"如果没有
-- 如果没有真的好写的，就说一句朴素的话
+好参考："看了你们的JD，我做的项目正好是Agent编排这一套，聊聊？"
+当然你的话可以跟这个完全不同。
 
-## 输出
 JSON: {{"greeting": "..."}}"""
 
 
@@ -42,7 +36,7 @@ async def generate(jd_text: str, resume: str = "") -> str:
             {"role": "system", "content": "你是一个诚实的求职者。只返回JSON。"},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.5,
+        "temperature": 0.8,
         "max_tokens": 256,
     }
     try:
