@@ -129,7 +129,7 @@ DeepSeek: 候选池达190，≥70分38个 → 停止搜索，进入分层
 ## 架构
 
 ```
-决策层（Agent 自主调度）→ 执行层（httpx → DeepSeek）→ 连接层（nodriver + CDP + XHR）
+决策层（Agent 自主调度）→ 执行层（httpx → DeepSeek）→ 连接层（XHR 获取数据 + CDP 发送消息）
 ```
 
 ## 数据
