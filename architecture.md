@@ -36,8 +36,8 @@
 | 过滤 | 城市不匹配、薪资不达标、虚假招聘（教育/培训类）跳过 |
 | 详情重评 | top 30 用 card.json 拿完整 JD，DeepSeek 重评 |
 | Agent 调度 | DeepSeek 动态选词选城，观察→决策→执行循环，非固定步骤 |
-| 分层 | high(5)/medium(7)/try(8)，优先取详情重评过的 |
-| 招呼语 | DeepSeek 基于简历+JD 生成 |
+| 分层 | 按分数阈值 (≥80 / ≥60 / <60)，填满配额自动跳级 |
+| 招呼语 | DeepSeek 基于简历+JD 生成，第一人称短句，温度 0.8 |
 | SSE 推送 | 逐条推给前端，实时显示卡片 |
 | 勾选发送 | 前端复选框 + 发送按钮，POST /api/send |
 | XHR + CDP | friend/add.json 建关系 + CDP insert_text 自定义招呼语 |
@@ -46,7 +46,7 @@
 
 ```
 App.vue
-├── TopBar.vue          Logo + 状态指示器 + 开始/停止
+├── TopBar.vue          Logo + 状态指示器 + 简历上传 + 开始/停止
 ├── ProgressBand.vue    进度条 + 步骤提示
 ├── StatCards.vue       高分/中分/可试/总数 四张统计卡
 ├── JobList.vue         排序 + 发送选中按钮 + 卡片列表
@@ -63,8 +63,9 @@ App.vue
 | 搜索岗位 | 150-200 候选/次（Agent 动态调度 12 轮） |
 | 评分方案 | 标签快速初筛 + 详情 API 重评 top 30 |
 | 评分区间 | 30-95 分 |
-| 最终输出 | 20 个岗位按 5/7/8 分层 |
-| 发送 | XHR friend/add.json + CDP Input.insertText 自定义招呼语 |
+| 最终输出 | 20 个岗位按 ≥80 / ≥60 / <60 分层 |
+| 发送 | XHR friend/add.json 建关系 + CDP insert_text 自定义招呼语 + 回车三连发送 |
+| 配套工具 | 简历上传、check.py 环境检查、一键 start.sh、SETUP 零基础安装指南 |
 
 ## 设计理念
 
