@@ -76,7 +76,7 @@ class AgentRunner:
             _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")
 
             s._profiles = await s._prepare_profile(s._resume)
-            _log.info(f"技能剖面: {len(s._profiles)} 段")
+            _log.info(f"技能剖面: {s._profiles.count(chr(10))+1} 段")
 
             # === Agent 动态调度搜索 ===
             BOSS_CODE = {"北京": "101010100", "长春": "101060100"}
