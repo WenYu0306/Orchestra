@@ -31,7 +31,9 @@ function connectSSE() {
     status.value = d.status
     if (d.message) runningMsg.value = d.message
     step.value = d.message || step.value
-    stepMeta.value = `已匹配 ${matched.value} 个`
+    const dm = (d.message||'').match(/重新评分:\s*(\d+)\/(\d+)/)
+    stepMeta.value = dm ? `详情重评 ${dm[1]}/${dm[2]}` : `已匹配 ${matched.value} 个`
+    if (dm) progress.value = Math.min(parseInt(dm[1]) / parseInt(dm[2]) * 100, 99)
   })
   sse.addEventListener('record', e => {
     const d = JSON.parse(e.data)
@@ -146,6 +148,8 @@ async function handleSend() {
     if (!r.ok) {
       const d = await r.json().catch(() => ({}))
       notif.value = { type: 'error', text: '发送失败: ' + (d.detail || r.statusText) }
+    } else {
+      toSend.forEach(j => { j._sent = true; j._selected = false })
     }
   } catch (e) {
     notif.value = { type: 'error', text: '发送失败: ' + (e.message || e) }
