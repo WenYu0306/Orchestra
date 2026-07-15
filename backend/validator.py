@@ -29,7 +29,21 @@ def check_salary(job: dict, min_salary: int) -> tuple[bool, str]:
         # BOSS 的 K 单位——数字 < 100 说明没带 K 字但实际是千
         if low_val < 100:
             low_val *= 1000
-        if low_val < min_salary:
+
+        # 同时看上限，只要范围上限够到 min_salary 就放行
+        parts = sd.split("-")
+        if len(parts) >= 2:
+            high_str = re.sub(r'[^\d]', '', parts[1])
+            if high_str:
+                high_val = int(high_str)
+                if high_val < 100:
+                    high_val *= 1000
+            else:
+                high_val = low_val
+        else:
+            high_val = low_val
+
+        if low_val < min_salary and high_val < min_salary:
             return False, f"薪资过滤: {sd}"
     except (ValueError, IndexError):
         pass
