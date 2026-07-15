@@ -1,32 +1,25 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 
 defineProps({ visible: Boolean })
 const emit = defineEmits(['close', 'apply'])
 
 const cities = ref([
-  { name: '北京', selected: true, minSalary: 15000 },
-  { name: '长春', selected: true, minSalary: 8000 },
-  { name: '上海', selected: false, minSalary: 15000 },
-  { name: '深圳', selected: false, minSalary: 15000 },
-  { name: '杭州', selected: false, minSalary: 15000 },
-  { name: '成都', selected: false, minSalary: 10000 },
+  { name: '北京', selected: true, minSalary: '15K' },
+  { name: '长春', selected: true, minSalary: '8K' },
+  { name: '上海', selected: false, minSalary: '15K' },
+  { name: '深圳', selected: false, minSalary: '15K' },
+  { name: '杭州', selected: false, minSalary: '15K' },
+  { name: '成都', selected: false, minSalary: '10K' },
 ])
 function toggleCity(c) { c.selected = !c.selected }
-
-const salaryMin = ref(15)
-const salaryMax = ref(30)
-const trackMin = 0
-const trackMax = 50
-const fillLeft = computed(() => (salaryMin.value / trackMax) * 100)
-const fillRight = computed(() => 100 - (salaryMax.value / trackMax) * 100)
 
 function onApply() {
   const selected = cities.value.filter(c => c.selected).map(c => ({
     name: c.name,
-    min_salary: c.minSalary,
+    min_salary: parseInt(c.minSalary) * 1000,
   }))
-  emit('apply', { cities: selected, salaryRange: [salaryMin.value, salaryMax.value] })
+  emit('apply', { cities: selected })
   emit('close')
 }
 
@@ -60,36 +53,8 @@ const tiers = [
             :class="{ active: c.selected }"
             @click="toggleCity(c)"
           >
-            {{ c.name }}
+            {{ c.name }}<span class="chip-salary">{{ c.minSalary }}</span>
           </button>
-        </div>
-      </section>
-      <section class="section">
-        <label class="section-label">最低薪资  ·  月薪</label>
-        <div class="salary-value-row">
-          <span class="salary-value">{{ salaryMin }}K – {{ salaryMax }}K</span>
-          <span class="salary-hint">共筛选 32 个岗位</span>
-        </div>
-        <div class="slider-track">
-          <div class="slider-bg"></div>
-          <div
-            class="slider-fill"
-            :style="{ left: fillLeft + '%', right: fillRight + '%' }"
-          ></div>
-          <input
-            type="range"
-            class="range range-min"
-            v-model.number="salaryMin"
-            :min="trackMin"
-            :max="trackMax"
-          />
-          <input
-            type="range"
-            class="range range-max"
-            v-model.number="salaryMax"
-            :min="trackMin"
-            :max="trackMax"
-          />
         </div>
       </section>
       <section class="section">
@@ -198,72 +163,13 @@ const tiers = [
   color: #ffffff;
   font-weight: 600;
 }
-.salary-value-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+.chip-salary {
+  font-size: 10.5px;
+  opacity: 0.7;
+  margin-left: 4px;
 }
-.salary-value {
-  font-family: 'Geist Mono', monospace;
-  font-size: 20px;
-  font-weight: 700;
-  color: #4f46e5;
-}
-.salary-hint {
-  font-size: 11px;
-  color: #94a3b8;
-}
-.slider-track {
-  position: relative;
-  width: 100%;
-  height: 28px;
-}
-.slider-bg {
-  position: absolute;
-  top: 12px;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: #e2e8f0;
-  border-radius: 999px;
-}
-.slider-fill {
-  position: absolute;
-  top: 12px;
-  height: 4px;
-  background: #6366f1;
-  border-radius: 999px;
-}
-.range {
-  position: absolute;
-  top: 6px;
-  left: 0;
-  width: 100%;
-  height: 16px;
-  margin: 0;
-  background: none;
-  pointer-events: none;
-  -webkit-appearance: none;
-  appearance: none;
-}
-.range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  pointer-events: auto;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  background: #ffffff;
-  border: 2px solid #6366f1;
-  cursor: pointer;
-}
-.range::-moz-range-thumb {
-  pointer-events: auto;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  background: #ffffff;
-  border: 2px solid #6366f1;
-  cursor: pointer;
+.chip.active .chip-salary {
+  opacity: 0.9;
 }
 .tier-row {
   display: flex;
