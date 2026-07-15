@@ -40,20 +40,24 @@ const fillWidth = computed(() => `${props.progress}%`)
   padding: 0 32px;
   margin: 0;
   border-radius: 20px;
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.3),
+    inset 0 2px 8px rgba(16,185,129,0.1),
+    0 6px 20px rgba(0,0,0,0.06);
 }
 
 .elapsed { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
 .elapsed-row { display: flex; align-items: baseline; gap: 6px; }
-.lbl { font-size: 12px; color: var(--text-2); }
+.lbl { font-size: 12px; color: var(--text-3); }
 .val {
   font-family: var(--font-mono); font-weight: 600; font-size: 16px;
   color: var(--green-dark);
 }
-.remain { font-size: 11px; color: var(--text-3); }
+.remain { font-size: 11px; color: var(--text-4); }
 
 .track {
   flex: 1; height: 6px;
-  background: #E0E3EA;
+  background: #E0E5EA;
   border-radius: 999px;
   overflow: hidden;
 }
@@ -65,6 +69,6 @@ const fillWidth = computed(() => `${props.progress}%`)
 }
 
 .step { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
-.step-text { font-size: 13px; font-weight: 500; color: var(--text-1); }
-.step-meta { font-size: 11px; color: var(--text-3); }
+.step-text { font-size: 13px; font-weight: 500; color: var(--text-2); }
+.step-meta { font-size: 11px; color: var(--text-4); }
 </style>

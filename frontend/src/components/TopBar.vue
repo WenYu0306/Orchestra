@@ -72,6 +72,10 @@ const isRunning = computed(() => props.status === 'running')
   padding: 0 32px;
   margin: 16px 0 12px;
   border-radius: 20px;
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.25),
+    inset 0 2px 8px rgba(99,102,241,0.15),
+    0 8px 32px rgba(0,0,0,0.06);
 }
 
 /* Logo */

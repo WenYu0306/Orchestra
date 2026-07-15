@@ -43,8 +43,14 @@ function copyGreeting(text) {
         </div>
         <div class="job-title">{{ job.title }}</div>
         <div class="meta">
-          <span class="salary">{{ job.salary }}</span>
-          <span class="loc">{{ job.location }}</span>
+          <span class="salary-pill" v-if="job.salary">
+            <span class="salary-num">{{ (job.salary||'').split('-')[0].replace(/[^\d]/g,'') }}</span>
+            <span class="salary-unit">K</span>
+          </span>
+          <span class="city-tag" v-if="job.location">
+            <svg class="pin" viewBox="0 0 11 11" width="11" height="11"><circle cx="5.5" cy="4" r="2" fill="none" stroke="currentColor" stroke-width="1"/><path d="M5.5 1C3 1 1.5 3 1.5 5.5c0 3 4 6 4 6s4-3 4-6C9.5 3 8 1 5.5 1z" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+            <span>{{ job.location }}</span>
+          </span>
         </div>
       </div>
       <div class="score" :style="{ color: tierColor(job.tier) }">{{ job.score }}</div>
@@ -125,7 +131,23 @@ function copyGreeting(text) {
 
 .meta { display: flex; align-items: center; gap: 10px; }
 .salary { font-family: var(--font-mono); font-weight: 600; font-size: 13px; color: var(--text-1); }
-.loc { font-size: 12px; color: var(--text-3); }
+.loc { font-size: 12px; color: var(--text-4); }
+
+.salary-pill {
+  display: flex; align-items: baseline; gap: 1px;
+  background: var(--salary-bg); border-radius: 7px;
+  padding: 3px 8px; height: 22px;
+}
+.salary-num { font-family: var(--font-mono); font-weight: 600; font-size: 12.5px; color: var(--indigo-dark); }
+.salary-unit { font-family: var(--font-mono); font-weight: 500; font-size: 11px; color: var(--indigo); }
+
+.city-tag {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--city-tag-bg); border-radius: 6px;
+  padding: 3px 7px; height: 22px;
+}
+.city-tag .pin { color: var(--text-3); }
+.city-tag span { font-size: 11px; font-weight: 500; color: var(--text-3); }
 
 .score {
   font-family: var(--font-mono); font-weight: 700; font-size: 34px;
@@ -136,24 +158,24 @@ function copyGreeting(text) {
 .reason { font-size: 12px; color: var(--text-3); line-height: 18px; }
 
 .greeting {
-  background: #F7F8FA;
-  border: 1px solid rgba(224, 227, 234, 0.5);
+  background: var(--greeting-bg);
+  border: 1px solid rgba(224, 229, 234, 0.5);
   border-radius: 12px;
   padding: 14px;
 }
 .greeting-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.greeting-lbl { font-size: 11px; font-weight: 500; color: var(--text-3); }
+.greeting-lbl { font-size: 11px; font-weight: 500; color: var(--text-4); }
 .copy-btn {
   display: flex; align-items: center; gap: 4px;
   height: 23px; padding: 0 8px;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 11px; color: var(--text-2);
+  font-size: 10.5px; color: var(--text-3);
   transition: border-color .2s, color .2s;
 }
 .copy-btn:hover { border-color: var(--indigo-border); color: var(--indigo); }
-.greeting-text { font-size: 12.5px; color: var(--text-1); line-height: 20px; }
+.greeting-text { font-size: 12.5px; color: var(--text-2); line-height: 20px; }
 
 /* 选中复选框 */
 .check-cell {

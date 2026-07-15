@@ -69,7 +69,7 @@ const stats = computed(() => {
   border: 1px solid var(--border-soft);
   border-radius: 20px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 1px 2px rgba(255, 255, 255, 0.4),
     0 6px 16px rgba(0, 0, 0, 0.07),
     0 12px 24px rgba(0, 0, 0, 0.03);
 }
@@ -83,7 +83,7 @@ const stats = computed(() => {
   line-height: 1.1;
   display: flex; align-items: center;
 }
-.sub { font-size: 12px; color: var(--text-3); }
+.sub { font-size: 12px; color: var(--text-4); }
 
 .pop-enter-active { transition: transform .3s ease, opacity .3s ease; }
 .pop-enter-from { transform: translateY(-6px) scale(.9); opacity: 0; }

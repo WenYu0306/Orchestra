@@ -4,14 +4,15 @@
 /* ===== 设计变量 ===== */
 :root {
   /* 背景 */
-  --bg-1: #F7F5FA;
+  --bg-1: #F7F6FA;
   --bg-2: #F7F8FA;
 
   /* 文字 */
   --text-1: #1E293B;
-  --text-2: #64748B;
-  --text-3: #94A3B8;
-  --text-4: #CBD5E1;
+  --text-2: #334155;
+  --text-3: #64748B;
+  --text-4: #94A3B8;
+  --text-5: #CBD5E1;
 
   /* 档位色 */
   --indigo: #6366F1;
@@ -26,18 +27,23 @@
   --amber-border: rgba(245, 158, 11, 0.30);
 
   /* 状态色 */
-  --green: #10B981;
+  --green: #10BA82;
   --green-dark: #059669;
   --green-soft: rgba(16, 185, 129, 0.08);
   --green-border: rgba(16, 185, 129, 0.25);
-  --red: #EF4444;
+  --red: #DC2626;
+  --red-soft: #FEE2E2;
+  --red-border: #FCA5A5;
 
   /* 描边 / 面板 */
   --border: #E2E8F0;
   --border-soft: rgba(255, 255, 255, 0.55);
   --panel-bg: rgba(255, 255, 255, 0.55);
-  --card-bg: rgba(255, 255, 255, 0.70);
+  --card-bg: rgba(255, 255, 255, 0.65);
   --card-bg-hover: rgba(255, 255, 255, 0.96);
+  --salary-bg: #EEF0FF;
+  --city-tag-bg: #F1F5F9;
+  --greeting-bg: #F7F8FA;
 
   /* 字体栈 */
   --font-cn: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
