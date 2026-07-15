@@ -243,10 +243,17 @@ class RecordManager:
         self._tier_counts = {"high": 0, "medium": 0, "try": 0}
         self._applied = []
         self._applied_companies = set()
-        for record in self._applied:
-            company = record.get("company", "")
-            if company:
-                self._applied_companies.add(company)
+        # 从文件恢复历史已投公司，跨会话去重
+        if self._applied_path.exists():
+            try:
+                with open(self._applied_path, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+                for record in history:
+                    company = record.get("company", "")
+                    if company:
+                        self._applied_companies.add(company)
+            except Exception:
+                pass
 
 
 # 全局单例

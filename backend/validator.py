@@ -9,7 +9,7 @@ def check_city(job: dict, expected_city: str) -> tuple[bool, str]:
     """校验城市是否匹配预期"""
     actual = job.get("cityName", "")
     if actual and expected_city not in actual:
-        return True, f"城市不匹配: 期望{expected_city}, 实际{actual}"
+        return False, f"城市不匹配: 期望{expected_city}, 实际{actual}"
     return True, ""
 
 
