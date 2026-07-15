@@ -21,7 +21,7 @@ graph TB
             Stop["POST /api/stop"]
             Events["GET /api/events<br/>(SSE流)"]
             Test["GET /api/test<br/>(AI链路验证)"]
-            Send["POST /api/send<br/>(招呼语发送 ⚠️待修正)"]
+            Send["POST /api/send<br/>(CDP自定义招呼语 ✅)"]
             Close["POST /api/close<br/>(关浏览器)"]
         end
 
@@ -102,7 +102,7 @@ graph TB
     %% SSE 推送回前端
     SSE -->|"EventSource /api/events"| App
 
-    style Send fill:#fbb,stroke:#f00
+    style Send fill:#bfb,stroke:#0a0
     style BossAPI fill:#ff9,stroke:#f90
     style Chrome fill:#9f9,stroke:#090
     style DeepSeek fill:#9cf,stroke:#09f

@@ -72,7 +72,7 @@
 <body>
 
 <h1>JobHunter v1.0 · 技术架构</h1>
-<div class="sub">2026-07-08 ｜ 后端评分链路全通 ｜ 招呼语发送待修正</div>
+<div class="sub">2026-07-16 ｜ 全链路闭环 ｜ CDP自定义招呼语 ✅ ｜ Agent自主调度 ✅</div>
 
 <!-- ========== 第一层：用户看到的 ========== -->
 <div class="layer">
@@ -123,9 +123,9 @@
       <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">GET /api/test</td>
       <td style="padding:8px 12px">不开浏览器，纯测 AI 链路：读简历 → 生成搜索词 → 示例 JD 打分。启动前验证用。</td>
     </tr>
-    <tr style="background:#FEF2F2">
-      <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">POST /api/send ⚠️</td>
-      <td style="padding:8px 12px; color:#991B1B">招呼语发送。当前实现有 bug：导航到职位详情页找沟通按钮，应该改到搜索列表页直接操作。见下方说明。</td>
+    <tr>
+      <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">POST /api/send ✅</td>
+      <td style="padding:8px 12px">招呼语发送。XHR friend/add.json 建立沟通关系 → 跳聊天页 → CDP insert_text 自定义文案 → 回车三连发送。</td>
     </tr>
     <tr>
       <td style="padding:8px 12px; font-family:monospace; font-weight:600; white-space:nowrap">POST /api/close</td>
@@ -220,41 +220,14 @@
   </table>
 </div>
 
-<!-- ========== 问题 ========== -->
-<div class="layer" style="border: 2px solid #FCA5A5;">
-  <h2>⚠️ 已知问题：招呼语发送 <span class="tag red">待修正</span></h2>
-
-  <h3>当前实现 vs 正确做法</h3>
-  <div class="flow">
-    <div class="step bad">当前（错）<br/>导航到职位详情页<br/><small>job_detail/{securityId}.html</small></div>
-    <div class="arrow">→</div>
-    <div class="step bad">在详情页里<br/>找沟通按钮</div>
-    <div class="arrow">→</div>
-    <div class="step bad">填招呼语 + 发送</div>
-  </div>
-
-  <div class="flow">
-    <div class="step" style="background:#D1FAE5;border-color:#6EE7B7;">正确做法<br/>在搜索列表页</div>
-    <div class="arrow">→</div>
-    <div class="step" style="background:#D1FAE5;border-color:#6EE7B7;">定位职位卡片<br/>点「立即沟通」按钮</div>
-    <div class="arrow">→</div>
-    <div class="step" style="background:#D1FAE5;border-color:#6EE7B7;">弹窗填招呼语<br/>点发送</div>
-  </div>
-
-  <h3>两个问题</h3>
-  <p>1. <strong>URL 可能不对：</strong><code>securityId</code> 是 BOSS API 返回的字段，但职位详情页 URL 用的可能是 <code>encryptJobId</code>——搜索 API 返回里两个字段都有，我们不确定哪个是详情页 URL 的参数。</p>
-  <p>2. <strong>沟通按钮不在详情页：</strong>GitHub 上 7 个同类项目的做法一致——在搜索列表页的职位卡片上直接找沟通按钮（文本可能是「立即沟通」「发起沟通」「沟通一下」「聊一聊」「联系Ta」「开始沟通」六种之一），点开后弹出一个招呼语对话框，填好发送。<strong>不跳详情页。</strong></p>
-
-  <div class="note">
-    <strong>下一步需要的验证（你手动做，不改代码）：</strong><br/>
-    ① 打开 BOSS 网页版，随便看一个职位详情页，看浏览器地址栏 URL 格式是不是 <code>job_detail/xxx.html</code><br/>
-    ② 详情页上有「立即沟通」按钮吗？打开控制台执行 <code>document.querySelector('[class*="chat"]')</code> 看能找到什么<br/>
-    ③ 回到搜索列表页，找一个职位卡片，右键检查元素，看沟通按钮的 class 和 DOM 结构
-  </div>
+<!-- ========== 项目状态 ========== -->
+<div class="layer" style="border: 2px solid #6EE7B7;">
+  <h2>✅ 项目状态 <span class="tag green">全线贯通</span></h2>
+  <p>XHR 直调 BOSS API 获取数据 → 两级 DeepSeek 评分 → Agent 自主调度 → CDP 内核自定义文案发送。全链路闭环。</p>
 </div>
 
 <p style="text-align:center; color:#94A3B8; font-size:12px; margin-top:32px;">
-  JobHunter v1.0 · FastAPI + Vue3 + DeepSeek + nodriver · 2026-07-08
+  JobHunter v1.0 · FastAPI + Vue3 + DeepSeek + nodriver · 2026-07-16
 </p>
 
 </body>
