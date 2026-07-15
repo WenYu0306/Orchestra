@@ -5,32 +5,36 @@ defineProps({ visible: Boolean })
 const emit = defineEmits(['close', 'apply'])
 
 const cities = ref([
-  { name: '北京', selected: true },
-  { name: '上海', selected: true },
-  { name: '深圳', selected: true },
-  { name: '杭州', selected: false },
-  { name: '广州', selected: false },
-  { name: '成都', selected: false },
+  { name: '北京', selected: true, minSalary: 15000 },
+  { name: '长春', selected: true, minSalary: 8000 },
+  { name: '上海', selected: false, minSalary: 15000 },
+  { name: '深圳', selected: false, minSalary: 15000 },
+  { name: '杭州', selected: false, minSalary: 15000 },
+  { name: '成都', selected: false, minSalary: 10000 },
 ])
 function toggleCity(c) { c.selected = !c.selected }
 
 const salaryMin = ref(15)
-const salaryMax = ref(60)
+const salaryMax = ref(30)
 const trackMin = 0
-const trackMax = 100
+const trackMax = 50
 const fillLeft = computed(() => (salaryMin.value / trackMax) * 100)
 const fillRight = computed(() => 100 - (salaryMax.value / trackMax) * 100)
+
+function onApply() {
+  const selected = cities.value.filter(c => c.selected).map(c => ({
+    name: c.name,
+    min_salary: c.minSalary,
+  }))
+  emit('apply', { cities: selected, salaryRange: [salaryMin.value, salaryMax.value] })
+  emit('close')
+}
 
 const tiers = [
   { label: '高分档', range: '≥ 80 分', color: '#4F46E5' },
   { label: '中分档', range: '60 – 79 分', color: '#3B82F6' },
   { label: '可试档', range: '40 – 59 分', color: '#F59E0B' },
 ]
-
-function onApply() {
-  emit('apply')
-  emit('close')
-}
 </script>
 <template>
   <Transition name="drawer">
@@ -61,7 +65,7 @@ function onApply() {
         </div>
       </section>
       <section class="section">
-        <label class="section-label">期望薪资范围  ·  月薪</label>
+        <label class="section-label">最低薪资  ·  月薪</label>
         <div class="salary-value-row">
           <span class="salary-value">{{ salaryMin }}K – {{ salaryMax }}K</span>
           <span class="salary-hint">共筛选 32 个岗位</span>
