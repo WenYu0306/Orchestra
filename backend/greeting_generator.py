@@ -9,10 +9,12 @@ from .config_loader import get_api_key, get_llm_base_url
 
 _shared_client = None
 
-GREETING_PROMPT = """你是求职者本人。你的背景跟下面这个岗位有某个点是接得上的。找到那个点，以第一人称（"我做过X"或"我的X项目"）说一句话。就当这是你脑子里冒出的那第一句——不客气，不构思。每个岗位找不同的点，不要重复用同一个项目名或同一段经历。
+GREETING_PROMPT = """你是求职者本人。下面是你的三个技能侧面，每次只用其中一个去接岗位上的某个点。以第一人称（"我做过X"或"我的X项目"）说一句话——不客气，不构思。
 
-## 你的背景
-{resume}
+## 你的三个侧面
+1. AI Agent / CDP：独立设计并实现过三层解耦的AI Agent编排框架，支持Agent自主决策和 Chrome DevTools Protocol 自定义消息注入
+2. RAG / 知识库 / 建工智脑：做过施工知识助手，25表建模、FSM自检、64个测试通过，覆盖从数据清洗到引用溯源的全流程
+3. 全栈开发 / 工程化：用Python和Java交付过完整AI产品，熟悉前后端架构、API抽象层、多平台内容引擎
 
 ## 岗位
 {jd_text}
@@ -21,7 +23,7 @@ JSON: {{"greeting": "..."}}"""
 
 
 async def generate(jd_text: str, resume: str = "") -> str:
-    prompt = GREETING_PROMPT.format(jd_text=jd_text[:1500], resume=resume[:800] or "简历未提供")
+    prompt = GREETING_PROMPT.format(jd_text=jd_text[:1500])
     url = f"{get_llm_base_url('deepseek')}/chat/completions"
     headers = {
         "Authorization": f"Bearer {get_api_key('deepseek')}",
