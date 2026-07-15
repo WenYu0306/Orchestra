@@ -75,6 +75,9 @@ class AgentRunner:
             keywords = await s._prepare_keywords(cfg)
             _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")
 
+            s._profiles = await s._prepare_profile(s._resume)
+            _log.info(f"技能剖面: {len(s._profiles)} 段")
+
             # === Agent 动态调度搜索 ===
             BOSS_CODE = {"北京": "101010100", "长春": "101060100"}
             cities_cfg = cfg.search.get("cities", [])
@@ -163,6 +166,27 @@ class AgentRunner:
                 except: pass
 
     # ====== 步骤方法 ======
+
+    async def _prepare_profile(s, resume: str) -> str:
+        """用 DeepSeek 把长简历压缩成 3 个技能侧面"""
+        prompt = f"把你这份简历拆成 3 个不同方向的技能描写，每段 30-50 字，每段加编号 1. 2. 3.，方便每次只用一个方向去接岗位的点。\n\n简历：\n{resume[:3000]}"
+        try:
+            from .config_loader import get_api_key, get_llm_base_url
+            global _agent_shared_client
+            if _agent_shared_client is None:
+                _agent_shared_client = httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5),
+                    limits=httpx.Limits(max_connections=20, max_keepalive_connections=5))
+            url = f"{get_llm_base_url('deepseek')}/chat/completions"
+            headers = {"Authorization": f"Bearer {get_api_key('deepseek')}", "Content-Type": "application/json"}
+            body = {"model": "deepseek-chat", "messages": [
+                {"role": "system", "content": "你是一个专业的简历分析器。"},
+                {"role": "user", "content": prompt}],
+                "temperature": 0.3, "max_tokens": 300}
+            r = await _agent_shared_client.post(url, json=body, headers=headers)
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"] or "AI全栈开发，有Agent编排和RAG经验"
+        except Exception:
+            return "AI全栈开发，有Agent编排和RAG经验"
 
     async def _prepare_keywords(s, cfg) -> list:
         """合并配置预设 + DeepSeek 动态生成的关键词"""
@@ -443,7 +467,7 @@ class AgentRunner:
 
     async def _generate_greeting(s, jd: str) -> str:
         try:
-            return await asyncio.wait_for(gen_greeting(jd[:1500], s._resume), timeout=5.0)
+            return await asyncio.wait_for(gen_greeting(jd[:1500], getattr(s, '_profiles', '')), timeout=5.0)
         except Exception:
             return "您好，我对这个职位很感兴趣，希望能进一步了解。"
 
