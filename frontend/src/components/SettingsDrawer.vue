@@ -1,128 +1,297 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
-const props = defineProps({ visible: Boolean })
+defineProps({ visible: Boolean })
 const emit = defineEmits(['close', 'apply'])
 
-const myCities = ref([
-  { name: '北京', on: true }, { name: '上海', on: false },
-  { name: '长春', on: true }, { name: '深圳', on: false },
-  { name: '杭州', on: false }, { name: '成都', on: false },
+const cities = ref([
+  { name: '北京', selected: true },
+  { name: '上海', selected: true },
+  { name: '深圳', selected: true },
+  { name: '杭州', selected: false },
+  { name: '广州', selected: false },
+  { name: '成都', selected: false },
 ])
-const minSalary = ref(15000)
+function toggleCity(c) { c.selected = !c.selected }
 
-function toggleCity(i) { myCities.value[i].on = !myCities.value[i].on }
+const salaryMin = ref(15)
+const salaryMax = ref(60)
+const trackMin = 0
+const trackMax = 100
+const fillLeft = computed(() => (salaryMin.value / trackMax) * 100)
+const fillRight = computed(() => 100 - (salaryMax.value / trackMax) * 100)
 
-function applyAndClose() {
-  emit('apply', {
-    cities: myCities.value.filter(c => c.on).map(c => ({ name: c.name, min_salary: minSalary.value })),
-  })
+const tiers = [
+  { label: '高分档', range: '≥ 80 分', color: '#4F46E5' },
+  { label: '中分档', range: '60 – 79 分', color: '#3B82F6' },
+  { label: '可试档', range: '40 – 59 分', color: '#F59E0B' },
+]
+
+function onApply() {
+  emit('apply')
   emit('close')
 }
 </script>
-
 <template>
-  <Transition name="overlay">
-    <div v-if="visible" class="drawer-overlay" @click.self="emit('close')">
-      <Transition name="panel">
-        <aside v-if="visible" class="drawer">
-          <div class="drawer-head">
-            <div>
-              <h3 class="drawer-title">求职设置</h3>
-              <p class="drawer-sub">调整搜索城市、薪资和分层规则</p>
-            </div>
-            <button class="drawer-close" @click="emit('close')">
-              <svg viewBox="0 0 14 14" width="14" height="14">
-                <path d="M3 3 L11 11 M11 3 L3 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-              </svg>
-            </button>
-          </div>
-
-          <div class="drawer-body">
-            <!-- 城市 -->
-            <label class="sec-label">搜索城市</label>
-            <div class="city-chips">
-              <button v-for="(c, i) in myCities" :key="c.name"
-                class="chip" :class="{ active: c.on }" @click="toggleCity(i)">{{ c.name }}</button>
-            </div>
-
-            <!-- 薪资 -->
-            <label class="sec-label">
-              最低薪资 <span class="salary-val">{{ minSalary }}</span> 元/月
-            </label>
-            <div class="slider-wrap">
-              <input type="range" v-model.number="minSalary" min="5000" max="50000" step="1000" />
-            </div>
-            <span class="sec-hint">低于此薪资的岗位将被过滤</span>
-          </div>
-
-          <button class="apply-btn" @click="applyAndClose">应用</button>
-        </aside>
-      </Transition>
-    </div>
+  <Transition name="drawer">
+    <aside v-if="visible" class="drawer">
+      <header class="head">
+        <div class="title-group">
+          <h2 class="title">搜索设置</h2>
+          <p class="subtitle">调整后实时筛选职位</p>
+        </div>
+        <button class="close-btn" @click="emit('close')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M6 6l12 12M18 6L6 18" stroke="#64748B" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </header>
+      <section class="section">
+        <label class="section-label">搜索城市  ·  可多选</label>
+        <div class="chips">
+          <button
+            v-for="c in cities"
+            :key="c.name"
+            class="chip"
+            :class="{ active: c.selected }"
+            @click="toggleCity(c)"
+          >
+            {{ c.name }}
+          </button>
+        </div>
+      </section>
+      <section class="section">
+        <label class="section-label">期望薪资范围  ·  月薪</label>
+        <div class="salary-value-row">
+          <span class="salary-value">{{ salaryMin }}K – {{ salaryMax }}K</span>
+          <span class="salary-hint">共筛选 32 个岗位</span>
+        </div>
+        <div class="slider-track">
+          <div class="slider-bg"></div>
+          <div
+            class="slider-fill"
+            :style="{ left: fillLeft + '%', right: fillRight + '%' }"
+          ></div>
+          <input
+            type="range"
+            class="range range-min"
+            v-model.number="salaryMin"
+            :min="trackMin"
+            :max="trackMax"
+          />
+          <input
+            type="range"
+            class="range range-max"
+            v-model.number="salaryMax"
+            :min="trackMin"
+            :max="trackMax"
+          />
+        </div>
+      </section>
+      <section class="section">
+        <label class="section-label">匹配档位阈值</label>
+        <div v-for="t in tiers" :key="t.label" class="tier-row">
+          <span class="tier-label" :style="{ color: t.color }">{{ t.label }}</span>
+          <span class="tier-value">{{ t.range }}</span>
+        </div>
+      </section>
+      <div class="actions">
+        <button class="apply-btn" @click="onApply">应用筛选</button>
+      </div>
+    </aside>
   </Transition>
 </template>
-
 <style scoped>
-/* ---- overlay ---- */
-.drawer-overlay {
-  position: fixed; inset: 0; z-index: 100;
-  background: rgba(0,0,0,0.12);
-  display: flex; justify-content: flex-end;
-}
-.overlay-enter-active, .overlay-leave-active { transition: opacity .25s ease; }
-.overlay-enter-from, .overlay-leave-to { opacity: 0; }
-
-/* ---- drawer ---- */
 .drawer {
-  width: 440px; max-width: 90vw; height: 100%;
-  padding: 24px; display: flex; flex-direction: column; gap: 22px;
-  background: rgba(255,255,255,0.62);
-  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
-  border-left: 1px solid rgba(255,255,255,0.5);
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 440px;
+  height: 100vh;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 20px 0 0 20px;
-  box-shadow:
-    inset 0 1px 2px rgba(255,255,255,0.3),
-    0 12px 36px rgba(0,0,0,0.06);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.06);
+  box-sizing: border-box;
+  z-index: 50;
 }
-.panel-enter-active, .panel-leave-active { transition: transform .3s cubic-bezier(.2,.8,.2,1); }
-.panel-enter-from, .panel-leave-to { transform: translateX(100%); }
-
-/* ---- head ---- */
-.drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.drawer-title { font-family: var(--font-en); font-size: 16px; font-weight: 600; color: var(--text-1); }
-.drawer-sub { font-size: 11.5px; color: var(--text-4); margin-top: 2px; }
-.drawer-close {
-  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
-  background: #F1F5F9; border-radius: 10px; cursor: pointer; color: var(--text-3);
-  flex-shrink: 0;
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: transform 0.3s ease;
 }
-
-/* ---- body ---- */
-.drawer-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
-.sec-label { font-size: 12px; font-weight: 500; color: #475569; }
-.salary-val { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--indigo-dark); margin-left: 4px; }
-.sec-hint { font-size: 11px; color: var(--text-4); }
-
-/* ---- chips ---- */
-.city-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.drawer-enter-from,
+.drawer-leave-to {
+  transform: translateX(100%);
+}
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.title {
+  margin: 0;
+  font-family: 'Geist', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.subtitle {
+  margin: 0;
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+.close-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.section-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .chip {
-  padding: 7px 13px; border-radius: 999px; font-size: 12.5px; font-weight: 500;
-  background: #fff; border: 1px solid #E0E5EA; color: var(--text-3);
-  cursor: pointer; transition: all .2s;
+  padding: 7px 13px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid #e0e5ea;
+  background: #ffffff;
+  color: #64748b;
+  transition: all 0.15s;
 }
-.chip.active { background: var(--indigo); color: #fff; border-color: var(--indigo); font-weight: 600; }
-
-/* ---- slider ---- */
-.slider-wrap input[type="range"] {
-  width: 100%; accent-color: var(--indigo);
+.chip.active {
+  background: #6366f1;
+  border-color: #6366f1;
+  color: #ffffff;
+  font-weight: 600;
 }
-
-/* ---- button ---- */
+.salary-value-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.salary-value {
+  font-family: 'Geist Mono', monospace;
+  font-size: 20px;
+  font-weight: 700;
+  color: #4f46e5;
+}
+.salary-hint {
+  font-size: 11px;
+  color: #94a3b8;
+}
+.slider-track {
+  position: relative;
+  width: 100%;
+  height: 28px;
+}
+.slider-bg {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 999px;
+}
+.slider-fill {
+  position: absolute;
+  top: 12px;
+  height: 4px;
+  background: #6366f1;
+  border-radius: 999px;
+}
+.range {
+  position: absolute;
+  top: 6px;
+  left: 0;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid #6366f1;
+  cursor: pointer;
+}
+.range::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid #6366f1;
+  cursor: pointer;
+}
+.tier-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tier-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tier-value {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+}
+.actions {
+  margin-top: auto;
+}
 .apply-btn {
-  height: 42px; background: var(--indigo); color: #fff;
-  border-radius: 12px; font-size: 14px; font-weight: 600;
-  cursor: pointer; border: none; width: 100%; flex-shrink: 0;
+  width: 100%;
+  height: 42px;
+  background: #6366f1;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
 }
-.apply-btn:hover { opacity: 0.88; }
+.apply-btn:hover {
+  background: #4f46e5;
+}
 </style>
