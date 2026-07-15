@@ -5,6 +5,7 @@ import ProgressBand from './components/ProgressBand.vue'
 import StatCards from './components/StatCards.vue'
 import JobList from './components/JobList.vue'
 import BottomBar from './components/BottomBar.vue'
+import SettingsDrawer from './components/SettingsDrawer.vue'
 
 const status = ref('idle')
 const runningMsg = ref('就绪')
@@ -163,13 +164,20 @@ function updateScale() {
 onMounted(() => { import('./style.css'); fetchStatus(); connectSSE(); updateScale(); window.addEventListener('resize', updateScale) })
 onUnmounted(() => { if (sse) sse.close(); window.removeEventListener('resize', updateScale) })
 onErrorCaptured((err) => { console.error('Frontend error:', err); return false })
+
+const showSettings = ref(false)
+function applySettings(s) {
+  // 城市配置写回 config.yaml 通过后端重新加载
+  // 目前先关闭抽屉
+}
 </script>
 
 <template>
   <div class="aurora"><div class="aurora-blob"></div></div>
   <div class="scaler" :style="{ transform: `scale(${scale})` }">
     <div class="shell">
-      <TopBar :status="status" :matched="matched" @start="handleStart" @stop="handleStop" @upload-resume="handleUploadResume" />
+      <TopBar :status="status" :matched="matched" @start="handleStart" @stop="handleStop" @upload-resume="handleUploadResume" @gear="showSettings = true" />
+      <SettingsDrawer :visible="showSettings" @close="showSettings = false" />
       <ProgressBand :progress="progress" :step="step" :step-meta="stepMeta" :elapsed="elapsed" :remaining="remaining" />
       <StatCards :jobs="jobs" />
       <JobList :jobs="jobs" :loading="status === 'running'" :selected-count="selectedCount" @send="handleSend" />

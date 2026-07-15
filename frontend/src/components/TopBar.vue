@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 const props = defineProps({ status: String, matched: Number })
-const emit = defineEmits(['start', 'stop', 'uploadResume'])
+const emit = defineEmits(['start', 'stop', 'uploadResume', 'gear'])
 
 const pill = computed(() => {
   switch (props.status) {
@@ -43,6 +43,12 @@ const isRunning = computed(() => props.status === 'running')
         <svg viewBox="0 0 14 14" width="14" height="14"><path d="M3 9 L7 5 L11 9 M7 5 L7 13 M2 3 H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         <span>简历</span>
       </label>
+      <button class="gear-btn" title="设置" @click="emit('gear')">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+          <circle cx="8" cy="8" r="2.5"/>
+          <path d="M8 1.5 L8 3 M8 13 L8 14.5 M1.5 8 L3 8 M13 8 L14.5 8 M3.4 3.4 L4.5 4.5 M11.5 11.5 L12.6 12.6 M3.4 12.6 L4.5 11.5 M11.5 4.5 L12.6 3.4"/>
+        </svg>
+      </button>
       <div class="status-pill" :class="pill.cls">
         <span class="dot"></span>
         <span class="status-text">{{ pill.text }}</span>
@@ -189,4 +195,11 @@ const isRunning = computed(() => props.status === 'running')
   transition: border-color .2s, color .2s;
 }
 .upload-btn:hover { border-color: var(--indigo-border); color: var(--indigo); }
+.gear-btn {
+  width: 35px; height: 35px; display: flex; align-items: center; justify-content: center;
+  border-radius: 12px; border: 1px solid #E0E1E8;
+  background: #F8FAFC; color: var(--text-3); cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.gear-btn:hover { border-color: var(--indigo-border); color: var(--indigo); }
 </style>
