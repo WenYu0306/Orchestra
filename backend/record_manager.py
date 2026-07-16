@@ -123,6 +123,8 @@ class RecordManager:
 
     def is_company_recent(self, company: str, days: int = 30) -> bool:
         """检查公司最近 N 天是否已投递/招呼过"""
+        if company in self._applied_companies:
+            return True
         cutoff = time.time() - days * 86400
         for record in self._applied:
             if record.get("company") != company:
@@ -253,8 +255,7 @@ class RecordManager:
                     if company:
                         self._applied_companies.add(company)
             except Exception:
-                import traceback
-                traceback.print_exc()
+                pass
 
 
 # 全局单例
