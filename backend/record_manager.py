@@ -253,7 +253,8 @@ class RecordManager:
                     if company:
                         self._applied_companies.add(company)
             except Exception:
-                pass
+                import traceback
+                traceback.print_exc()
 
 
 # 全局单例
