@@ -404,21 +404,16 @@ class AgentRunner:
         return enriched
 
     async def _apply_tiers(s, enriched: list, cfg) -> int:
-        """最终分层：优先 JD>200 字的，不足补标签评分。生成招呼语 + 推送。返回 applied 数量。"""
-        high_quota = cfg.matching.tiers["high"].count
-        med_quota = cfg.matching.tiers["medium"].count
-        try_quota = cfg.matching.tiers["try"].count
-        max_total = high_quota + med_quota + try_quota
+        """分层：按分数阈值，不管配额。只保留去重 + ≥40分。返回 applied 数量。"""
         applied = 0
+        MAX_OUTPUT = 30  # 硬上限防全量输出
 
         detail_rich = [x for x in enriched if len(x[3]) > 200]
         for score, co, po, jd, kw, city_name, m, si, encId in detail_rich:
-            if s._stop: break
+            if s._stop or applied >= MAX_OUTPUT: break
             if co in s._ac or record_manager.is_company_recent(co):
                 continue
             tier = s._assign_tier(score, cfg)
-            if record_manager.is_tier_full(tier):
-                continue
             s._ac.add(co)
             greet = await s._generate_greeting(jd)
             _log.info(f"干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字")
@@ -431,15 +426,13 @@ class AgentRunner:
             await sse_manager.emit_record(rec)
             await asyncio.sleep(random.uniform(5, 8))
 
-        if applied < max_total:
+        if applied < MAX_OUTPUT:
             label_scored = [x for x in enriched if len(x[3]) <= 200]
             for score, co, po, jd, kw, city_name, m, si, encId in label_scored:
-                if s._stop: break
+                if s._stop or applied >= MAX_OUTPUT: break
                 if co in s._ac or record_manager.is_company_recent(co):
                     continue
                 tier = s._assign_tier(score, cfg)
-                if record_manager.is_tier_full(tier):
-                    continue
                 s._ac.add(co)
                 greet = await s._generate_greeting(jd)
                 _log.info(f"干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字")
