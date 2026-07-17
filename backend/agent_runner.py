@@ -13,6 +13,22 @@ from .matcher import match as ds_match
 from .record_manager import record_manager
 from .sse_manager import sse_manager, AppStatus
 from .validator import check_city, check_salary, check_company
+from dataclasses import dataclass, field
+
+
+@dataclass
+class ScoredJob:
+    """一个已评分的职位候选。全程用属性名访问，不再用 9 元组索引。"""
+    score: int
+    company: str
+    position: str
+    jd: str
+    keyword: str
+    city: str
+    match: dict
+    security_id: str
+    encrypt_job_id: str
+
 
 # ---- logging setup ----
 _log = logging.getLogger("agent")
@@ -28,55 +44,55 @@ _log_dir.mkdir(parents=True, exist_ok=True)
 _fh = TimedRotatingFileHandler(str(_log_dir / "agent.log"), when="midnight", backupCount=7)
 _fh.suffix = "%Y-%m-%d"
 try: _fh.maxBytes = 10 * 1024 * 1024  # 10MB per file
-except Exception: pass
+except Exception: _log.debug("maxBytes not supported on this Python")
 _fh.setFormatter(_fmt); _log.addHandler(_fh)
 
 
 class AgentRunner:
-    def __init__(s):
-        s._task = None; s._stop = False; s._browser = None; s._tab = None
-        s._pe = asyncio.Event(); s._pe.set()
-        s._resume = ""
-        s._tc = {"high":0,"medium":0,"try":0}; s._ac = set()
+    def __init__(self):
+        self._task = None; self._stop = False; self._browser = None; self._tab = None
+        self._pe = asyncio.Event(); self._pe.set()
+        self._resume = ""
+        self._tc = {"high":0,"medium":0,"try":0}; self._ac = set()
 
     @property
-    def is_running(s): return s._task is not None and not s._task.done()
+    def is_running(self): return self._task is not None and not self._task.done()
     @property
-    def is_paused(s): return not s._pe.is_set()
+    def is_paused(self): return not self._pe.is_set()
 
-    async def start(s):
-        if s.is_running: raise RuntimeError("运行中")
-        if s._browser:
-            try: s._browser.stop()
-            except: pass
-            s._browser = None; s._tab = None
-        s._stop = False; s._pe.set(); s._tc = {"high":0,"medium":0,"try":0}; s._ac = set()
+    async def start(self):
+        if self.is_running: raise RuntimeError("运行中")
+        if self._browser:
+            try: self._browser.stop()
+            except Exception: _log.debug("browser.stop() failed on restart")
+            self._browser = None; self._tab = None
+        self._stop = False; self._pe.set(); self._tc = {"high":0,"medium":0,"try":0}; self._ac = set()
         record_manager.reset_session()
-        s._task = asyncio.create_task(s._run())
+        self._task = asyncio.create_task(self._run())
 
-    async def stop(s):
-        s._stop = True; s._pe.set()
+    async def stop(self):
+        self._stop = True; self._pe.set()
         try: await sse_manager.emit_status(AppStatus.IDLE, {"message":"已停止"})
-        except: pass
+        except Exception: _log.debug("emit_status failed on stop")
 
-    async def resume_after_captcha(s):
-        s._pe.set()
+    async def resume_after_captcha(self):
+        self._pe.set()
         try: await sse_manager.emit_status(AppStatus.RUNNING, {"message":"继续"})
-        except: pass
+        except Exception: _log.debug("emit_status failed on resume")
 
-    async def _run(s):
+    async def _run(self):
         try:
-            s._resume = s._read_resume()
+            self._resume = self._read_resume()
             cfg = get_config()
 
-            if not await s._launch_and_login():
+            if not await self._launch_and_login():
                 return
 
-            keywords = await s._prepare_keywords(cfg)
+            keywords = await self._prepare_keywords(cfg)
             _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")
 
-            s._profiles = await s._prepare_profile(s._resume)
-            _log.info(f"技能剖面: {s._profiles.count(chr(10))+1} 段")
+            self._profiles = await self._prepare_profile(self._resume)
+            _log.info(f"技能剖面: {self._profiles.count(chr(10))+1} 段")
 
             # === Agent 动态调度搜索 ===
             BOSS_CODE = {"北京": "101010100", "长春": "101060100"}
@@ -91,19 +107,19 @@ class AgentRunner:
             init_kw = keywords[:3]
             used_kw.update(init_kw)
             for kw in init_kw:
-                if s._stop: break
+                if self._stop: break
                 for c in cities_cfg:
-                    if s._stop: break
+                    if self._stop: break
                     cc = BOSS_CODE.get(c["name"], "101010100")
                     ms = c.get("min_salary", 0)
                     loop += 1
-                    round_scored = await s._search_one(kw, c["name"], cc, ms)
+                    round_scored = await self._search_one(kw, c["name"], cc, ms)
                     all_scored.extend(round_scored)
-                    high70 = sum(1 for x in all_scored if x[0] >= 70)
+                    high70 = sum(1 for x in all_scored if x.score >= 70)
                     _log.info(f"[Agent] 首轮{loop}: {kw}/{c['name']} +{len(round_scored)}, 池{len(all_scored)} ≥70:{high70}")
 
             # Agent 调度循环
-            while not s._stop and loop < 12 and len(all_scored) < 300:
+            while not self._stop and loop < 12 and len(all_scored) < 300:
                 remainder = [kw for kw in keywords if kw not in used_kw]
                 if not remainder:
                     _log.info("[Agent] 无剩余关键词，停止搜索")
@@ -112,9 +128,9 @@ class AgentRunner:
                 # 构建状态
                 city_stats = {}
                 for x in all_scored:
-                    cn = x[5]; city_stats[cn] = city_stats.get(cn, 0) + 1
-                high80 = sum(1 for x in all_scored if x[0] >= 80)
-                high70 = sum(1 for x in all_scored if x[0] >= 70)
+                    cn = x.city; city_stats[cn] = city_stats.get(cn, 0) + 1
+                high80 = sum(1 for x in all_scored if x.score >= 80)
+                high70 = sum(1 for x in all_scored if x.score >= 70)
 
                 state = (
                     f"第{loop+1}轮（最多12轮）。候选池{len(all_scored)}个（≥80:{high80}, ≥70:{high70}）。"
@@ -122,7 +138,7 @@ class AgentRunner:
                     f"必要时选待搜词中最相关的{remainder[0]}搜北京或长春，或者stop。"
                     f"JSON: {{\"action\":\"search\"|\"stop\",\"keyword\":\"...\",\"city\":\"北京\"|\"长春\",\"reason\":\"...\"}}"
                 )
-                dec = await s._agent_decide(all_scored, remainder,
+                dec = await self._agent_decide(all_scored, remainder,
                                             cities_cfg, loop, len(remainder))
                 if dec.get("action") != "search":
                     break
@@ -134,40 +150,40 @@ class AgentRunner:
 
                 loop += 1
                 used_kw.add(kw)
-                round_scored = await s._search_one(kw, city_name, cc, ms)
+                round_scored = await self._search_one(kw, city_name, cc, ms)
                 all_scored.extend(round_scored)
-                high70 = sum(1 for x in all_scored if x[0] >= 70)
+                high70 = sum(1 for x in all_scored if x.score >= 70)
                 _log.info(f"[Agent] {loop}轮: {kw}/{city_name} +{len(round_scored)}, 池{len(all_scored)} ≥70:{high70}")
                 # checkpoint
                 try:
-                    cp = [{"score":x[0],"company":x[1],"pos":x[2],"city":x[5],"kw":x[4]} for x in all_scored[-50:]]
+                    cp = [{"score":x.score,"company":x.company,"pos":x.position,"city":x.city,"kw":x.keyword} for x in all_scored[-50:]]
                     with open(_log_dir / "checkpoint.json","w") as f:
                         json.dump(cp, f, ensure_ascii=False)
-                except Exception: pass
+                except Exception: _log.exception("checkpoint写入失败")
 
             for w in city_warnings:
                 _log.warning(w)
             if salary_skipped:
                 _log.info(f"薪资过滤: {salary_skipped} 个岗位")
-            all_scored.sort(key=lambda x: x[0], reverse=True)
+            all_scored.sort(key=lambda x: x.score, reverse=True)
             _log.info(f"标签评分完成，共 {len(all_scored)} 个候选")
 
-            enriched = await s._detail_reevaluate(all_scored)
+            enriched = await self._detail_reevaluate(all_scored)
 
-            applied = await s._apply_tiers(enriched, cfg)
+            applied = await self._apply_tiers(enriched, cfg)
 
-            await s._emit_results(applied)
+            await self._emit_results(applied)
 
         except Exception as e:
             traceback.print_exc(); await sse_manager.emit_error(str(e))
         finally:
-            if s._stop and s._browser:
-                try: s._browser.stop()
-                except: pass
+            if self._stop and self._browser:
+                try: self._browser.stop()
+                except Exception: _log.debug("browser.stop() failed in cleanup")
 
     # ====== 步骤方法 ======
 
-    async def _prepare_profile(s, resume: str) -> str:
+    async def _prepare_profile(self, resume: str) -> str:
         """用 DeepSeek 把长简历压缩成 3 个技能侧面"""
         prompt = f"把你这份简历拆成 3 个不同方向的技能描写，每段 30-50 字，每段加编号 1. 2. 3.，方便每次只用一个方向去接岗位的点。\n\n简历：\n{resume[:3000]}"
         try:
@@ -186,22 +202,23 @@ class AgentRunner:
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"] or "AI全栈开发，有Agent编排和RAG经验"
         except Exception:
+            _log.warning("技能剖面生成失败，使用默认")
             return "AI全栈开发，有Agent编排和RAG经验"
 
-    async def _prepare_keywords(s, cfg) -> list:
+    async def _prepare_keywords(self, cfg) -> list:
         """合并配置预设 + DeepSeek 动态生成的关键词"""
         keywords = list(cfg.search.get("primary_keywords", []))
         try:
             from .search_generator import generate as sg_gen
-            for d in await sg_gen(s._resume):
+            for d in await sg_gen(self._resume):
                 for kw in d.get("keywords", []):
                     if kw not in keywords:
                         keywords.append(kw)
         except Exception:
-            pass
+            _log.debug("动态搜索词生成失败，仅使用配置关键词")
         return keywords
 
-    async def _launch_and_login(s) -> bool:
+    async def _launch_and_login(self) -> bool:
         """启动 Chrome + 扫码登录 + Cookie 验证。返回 True 表示成功。"""
         await sse_manager.emit_status(AppStatus.RUNNING, {"message": "启动浏览器..."})
         chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -209,40 +226,40 @@ class AgentRunner:
             chrome_path = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
         elif os.name == "posix" and not __import__('pathlib').Path(chrome_path).exists():
             chrome_path = "google-chrome"
-        s._browser = await uc.start(headless=False,
+        self._browser = await uc.start(headless=False,
             browser_executable_path=chrome_path,
             user_data_dir=str(__import__('pathlib').Path(
                 __import__('tempfile').gettempdir()) / "jh-run-1"),
             no_sandbox=True,
             browser_args=["--disable-blink-features=AutomationControlled", "--no-first-run"])
-        s._tab = s._browser.main_tab
-        await s._tab.get("https://www.zhipin.com/web/geek/job")
-        await s._tab.sleep(8)
+        self._tab = self._browser.main_tab
+        await self._tab.get("https://www.zhipin.com/web/geek/job")
+        await self._tab.sleep(8)
 
-        cur = s._tab.target.url or ""
+        cur = self._tab.target.url or ""
         if "/user/" in cur or "login" in cur.lower() or "passport" in cur.lower() or "/geek/job" not in cur:
             await sse_manager.emit_status(AppStatus.RUNNING, {"message": "请扫码登录"})
             for _ in range(180):
-                if s._stop:
+                if self._stop:
                     return False
                 await asyncio.sleep(2)
-                cur = s._tab.target.url or ""
+                cur = self._tab.target.url or ""
                 if "/geek/job" in cur and "login" not in cur.lower() and "/user/" not in cur and "passport" not in cur.lower():
-                    await s._tab.sleep(3)
+                    await self._tab.sleep(3)
                     break
             else:
                 await sse_manager.emit_error("登录超时")
                 return False
 
-        await s._tab.sleep(5)
+        await self._tab.sleep(5)
 
         # cookie 验证
         verify_ok = False
         for _ in range(3):
             try:
-                await s._tab.get("https://www.zhipin.com/wapi/zpgeek/search/joblist.json?query=AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91&city=101010100&page=1&pageSize=1")
-                await s._tab.sleep(2)
-                raw = await s._tab.evaluate("document.body.innerText")
+                await self._tab.get("https://www.zhipin.com/wapi/zpgeek/search/joblist.json?query=AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91&city=101010100&page=1&pageSize=1")
+                await self._tab.sleep(2)
+                raw = await self._tab.evaluate("document.body.innerText")
                 if raw and isinstance(raw, str) and '"code":0' in raw and '"jobList"' in raw:
                     verify_ok = True
                     break
@@ -255,7 +272,7 @@ class AgentRunner:
         _log.info("Cookie 验证通过")
         return True
 
-    async def _search_and_score(s, cfg, keywords: list) -> tuple:
+    async def _search_and_score(self, cfg, keywords: list) -> tuple:
         """城市×关键词搜索 + 标签评分 + 过滤。
         返回 (all_scored, city_warnings, salary_skipped)。"""
         BOSS_CODE = {"北京": "101010100", "长春": "101060100"}
@@ -268,13 +285,13 @@ class AgentRunner:
             cc = BOSS_CODE.get(city["name"], "101010100")
             min_sal = city.get("min_salary", 0)
             for kw in keywords:
-                if s._stop:
+                if self._stop:
                     break
-                jobs = await s._fetch(kw, cc, city["name"])
+                jobs = await self._fetch(kw, cc, city["name"])
                 if not jobs:
                     continue
                 for j in jobs:
-                    if s._stop:
+                    if self._stop:
                         break
                     co = j.get("brandName", "") or j.get("brandName", "")
                     po = j.get("jobName", "")
@@ -298,7 +315,7 @@ class AgentRunner:
                         continue
                     await sse_manager.emit_status(AppStatus.RUNNING, {"message": f"评估:{co}"})
                     try:
-                        m = await asyncio.wait_for(ds_match(s._resume, jd[:3000]), timeout=15.0)
+                        m = await asyncio.wait_for(ds_match(self._resume, jd[:3000]), timeout=15.0)
                     except asyncio.TimeoutError:
                         continue
                     score = m["score"]
@@ -312,32 +329,32 @@ class AgentRunner:
                         continue
                     si = j.get("securityId", "")
                     encId = j.get("encryptJobId", "")
-                    all_scored.append((score, co, po, jd, kw, city["name"], m, si, encId))
+                    all_scored.append(ScoredJob(score=score, company=co, position=po, jd=jd, keyword=kw, city=city["name"], match=m, security_id=si, encrypt_job_id=encId))
                     if len(all_scored) % 15 == 0:
                         try:
-                            await s._tab.get("https://www.zhipin.com/web/geek/job")
-                            await s._tab.sleep(2)
+                            await self._tab.get("https://www.zhipin.com/web/geek/job")
+                            await self._tab.sleep(2)
                         except Exception:
                             pass
                 await asyncio.sleep(random.uniform(2, 3))
-            if s._stop:
+            if self._stop:
                 break
 
-        all_scored.sort(key=lambda x: x[0], reverse=True)
+        all_scored.sort(key=lambda x: x.score, reverse=True)
         return all_scored, city_warnings, salary_skipped
 
-    async def _search_one(s, kw: str, city_name: str, city_code: str, min_sal: int) -> list:
+    async def _search_one(self, kw: str, city_name: str, city_code: str, min_sal: int) -> list:
         """Agent 原子工具——单个关键词 × 单个城市搜索+过滤+评分。
         在 Chrome 页面内跑同步 XHR 调 BOSS joblist.json，拿回 30 个岗位，
         经过城市/公司/薪资三重过滤后，DeepSeek 打快分，返回 scored 元组列表。"""
-        if s._stop:
+        if self._stop:
             return []
-        jobs = await s._fetch(kw, city_code, city_name)
+        jobs = await self._fetch(kw, city_code, city_name)
         if not jobs:
             return []
         scored = []
         for j in jobs:
-            if s._stop:
+            if self._stop:
                 break
             co = j.get("brandName", "") or j.get("brandName", "")
             po = j.get("jobName", "")
@@ -360,7 +377,7 @@ class AgentRunner:
                 continue
             await sse_manager.emit_status(AppStatus.RUNNING, {"message": f"评估:{co}"})
             try:
-                m = await asyncio.wait_for(ds_match(s._resume, jd[:3000]), timeout=15.0)
+                m = await asyncio.wait_for(ds_match(self._resume, jd[:3000]), timeout=15.0)
             except asyncio.TimeoutError:
                 continue
             score = m["score"]
@@ -370,84 +387,84 @@ class AgentRunner:
                 continue
             si = j.get("securityId", "")
             encId = j.get("encryptJobId", "")
-            scored.append((score, co, po, jd, kw, city_name, m, si, encId))
+            scored.append(ScoredJob(score=score, company=co, position=po, jd=jd, keyword=kw, city=city_name, match=m, security_id=si, encrypt_job_id=encId))
         return scored
 
-    async def _detail_reevaluate(s, all_scored: list) -> list:
+    async def _detail_reevaluate(self, all_scored: list) -> list:
         """top 30 详情重评。返回 enriched 列表。"""
-        if not all_scored or s._stop:
+        if not all_scored or self._stop:
             return all_scored
 
         topN = all_scored[:30]
         enriched = []
         _log.info("获取 top 30 详情 JD 重新评分...")
-        for idx, (score, co, po, jd, kw, city_name, m, si, encId) in enumerate(topN):
-            if s._stop:
+        for idx, x in enumerate(topN):
+            if self._stop:
                 break
             await sse_manager.emit_status(AppStatus.RUNNING,
-                {"message": f"重新评分: {idx+1}/30 {co}"})
-            real_jd = await s._fetch_jd_detail(si) if si else ""
+                {"message": f"重新评分: {idx+1}/30 {x.company}"})
+            real_jd = await self._fetch_jd_detail(x.security_id) if x.security_id else ""
             if real_jd and len(real_jd) > 100:
                 try:
-                    new_m = await asyncio.wait_for(ds_match(s._resume, real_jd[:3000]), timeout=15.0)
+                    new_m = await asyncio.wait_for(ds_match(self._resume, real_jd[:3000]), timeout=15.0)
                     new_score = new_m["score"]
-                    _log.debug(f"[Detail] {idx+1}/30 {co}/{po} 标签{score}→真实{new_score} JD:{len(real_jd)}字")
-                    enriched.append((new_score, co, po, real_jd, kw, city_name, new_m, si, encId))
+                    _log.debug(f"[Detail] {idx+1}/30 {x.company}/{x.position} 标签{x.score}→真实{new_score} JD:{len(real_jd)}字")
+                    enriched.append(ScoredJob(score=new_score, company=x.company, position=x.position, jd=real_jd, keyword=x.keyword, city=x.city, match=new_m, security_id=x.security_id, encrypt_job_id=x.encrypt_job_id))
                 except Exception:
-                    enriched.append((score, co, po, jd, kw, city_name, m, si, encId))
+                    enriched.append(x)
             else:
-                enriched.append((score, co, po, jd, kw, city_name, m, si, encId))
+                enriched.append(x)
             await asyncio.sleep(random.uniform(3, 4))
-        enriched.extend([(sc, c, p, j, k, cn, mm, s, e) for sc, c, p, j, k, cn, mm, s, e in all_scored[30:]])
-        enriched.sort(key=lambda x: x[0], reverse=True)
+        enriched.extend(all_scored[30:])
+        enriched.sort(key=lambda x: x.score, reverse=True)
         _log.info(f"详情重评完成，共 {len(enriched)} 个候选")
         return enriched
 
-    async def _apply_tiers(s, enriched: list, cfg) -> int:
+    async def _apply_tiers(self, enriched: list, cfg) -> int:
         """分层：按分数阈值，不管配额。只保留去重 + ≥40分。返回 applied 数量。"""
         applied = 0
         MAX_OUTPUT = 30  # 硬上限防全量输出
 
-        detail_rich = [x for x in enriched if len(x[3]) > 200]
-        for score, co, po, jd, kw, city_name, m, si, encId in detail_rich:
-            if s._stop or applied >= MAX_OUTPUT: break
-            if co in s._ac or record_manager.is_company_recent(co):
+        detail_rich = [x for x in enriched if len(x.jd) > 200]
+        for x in detail_rich:
+            if self._stop or applied >= MAX_OUTPUT: break
+            if x.company in self._ac or record_manager.is_company_recent(x.company):
                 continue
-            tier = s._assign_tier(score, cfg)
-            s._ac.add(co)
-            greet = await s._generate_greeting(jd)
-            _log.info(f"干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字")
-            s._tc[tier] = s._tc.get(tier, 0) + 1
+            tier = self._assign_tier(x.score, cfg)
+            self._ac.add(x.company)
+            greet = await self._generate_greeting(x.jd)
+            _log.info(f"干跑: {tier}/{x.company}/{x.position}({x.score}分) 来源:{x.city}/{x.keyword} JD:{len(x.jd)}字")
+            self._tc[tier] = self._tc.get(tier, 0) + 1
             applied += 1
-            rec = record_manager.add_record(company=co, position=po, score=score,
-                reason=m["reason"], tier=tier, status="dry_run",
-                security_id=si, encrypt_job_id=encId, greeting=greet,
-                search_city=city_name, search_kw=kw)
+            rec = record_manager.add_record(company=x.company, position=x.position, score=x.score,
+                reason=x.match["reason"], tier=tier, status="dry_run",
+                security_id=x.security_id, encrypt_job_id=x.encrypt_job_id, greeting=greet,
+                search_city=x.city, search_kw=x.keyword)
             await sse_manager.emit_record(rec)
             await asyncio.sleep(random.uniform(5, 8))
 
         if applied < MAX_OUTPUT:
-            label_scored = [x for x in enriched if len(x[3]) <= 200]
-            for score, co, po, jd, kw, city_name, m, si, encId in label_scored:
-                if s._stop or applied >= MAX_OUTPUT: break
-                if co in s._ac or record_manager.is_company_recent(co):
+            label_scored = [x for x in enriched if len(x.jd) <= 200]
+            for x in label_scored:
+                if self._stop or applied >= MAX_OUTPUT: break
+                if x.company in self._ac or record_manager.is_company_recent(x.company):
                     continue
-                tier = s._assign_tier(score, cfg)
-                s._ac.add(co)
-                greet = await s._generate_greeting(jd)
-                _log.info(f"干跑: {tier}/{co}/{po}({score}分) 来源:{city_name}/{kw} JD:{len(jd)}字")
-                s._tc[tier] = s._tc.get(tier, 0) + 1
+                tier = self._assign_tier(x.score, cfg)
+                self._ac.add(x.company)
+                greet = await self._generate_greeting(x.jd)
+                _log.info(f"干跑: {tier}/{x.company}/{x.position}({x.score}分) 来源:{x.city}/{x.keyword} JD:{len(x.jd)}字")
+                self._tc[tier] = self._tc.get(tier, 0) + 1
                 applied += 1
-                rec = record_manager.add_record(company=co, position=po, score=score,
-                    reason=m["reason"], tier=tier, status="dry_run",
-                    security_id=si, encrypt_job_id=encId, greeting=greet,
-                    search_city=city_name, search_kw=kw)
+                rec = record_manager.add_record(company=x.company, position=x.position, score=x.score,
+                    reason=x.match["reason"], tier=tier, status="dry_run",
+                    security_id=x.security_id, encrypt_job_id=x.encrypt_job_id, greeting=greet,
+                    search_city=x.city, search_kw=x.keyword)
                 await sse_manager.emit_record(rec)
                 await asyncio.sleep(random.uniform(3, 5))
 
         return applied
 
-    def _assign_tier(s, score: int, cfg=None) -> str:
+    def _assign_tier(self, score: int, cfg=None) -> str:
         """按分数阈值分层，不使用位置序列。high≥80, medium≥60, try<60"""
         if cfg is None:
             cfg = get_config()
@@ -458,16 +475,17 @@ class AgentRunner:
             return "medium"
         return "try"
 
-    async def _generate_greeting(s, jd: str) -> str:
+    async def _generate_greeting(self, jd: str) -> str:
         try:
-            return await asyncio.wait_for(gen_greeting(jd[:1500], getattr(s, '_profiles', '')), timeout=5.0)
+            return await asyncio.wait_for(gen_greeting(jd[:1500], getattr(self, '_profiles', '')), timeout=5.0)
         except Exception:
+            _log.debug("招呼语生成超时或失败，使用默认")
             return "您好，我对这个职位很感兴趣，希望能进一步了解。"
 
-    async def _emit_results(s, applied: int):
+    async def _emit_results(self, applied: int):
         await sse_manager.emit_complete({
             "total_applied": applied,
-            "tier_counts": s._tier_stats(),
+            "tier_counts": self._tier_stats(),
             "jobs": [{"title": r.get("position", "?"), "company": r.get("company", "?"),
                       "score": r.get("score", 0), "tier": r.get("tier", "?"),
                       "reason": r.get("reason", ""), "status": r.get("status", ""),
@@ -479,7 +497,7 @@ class AgentRunner:
                       "greeting": r.get("greeting", "")} for r in record_manager.get_all_records()]
         })
 
-    async def _agent_decide(s, all_scored: list, remainder: list,
+    async def _agent_decide(self, all_scored: list, remainder: list,
                             cities: list, loop: int, remain_count: int) -> dict:
         """Agent 决策核心——把候选池状态（分数分布/城市分布/剩余关键词）拼文本发给
         DeepSeek，让它决定：搜什么词、搜哪个城、还是停了进分层。失败回退硬规则。"""
@@ -488,11 +506,11 @@ class AgentRunner:
         if not remainder:
             return {"action": "stop", "reason": "无剩余关键词"}
 
-        high80 = sum(1 for x in all_scored if x[0] >= 80)
-        high70 = sum(1 for x in all_scored if x[0] >= 70)
+        high80 = sum(1 for x in all_scored if x.score >= 80)
+        high70 = sum(1 for x in all_scored if x.score >= 70)
         city_counts = {}
         for x in all_scored:
-            cn = x[5]; city_counts[cn] = city_counts.get(cn, 0) + 1
+            cn = x.city; city_counts[cn] = city_counts.get(cn, 0) + 1
         city_str = ", ".join(f"{k}:{v}" for k, v in city_counts.items())
 
         prompt = (
@@ -530,19 +548,19 @@ class AgentRunner:
                     decision["pool_size"] = len(all_scored)
                     decision["high80"] = high80; decision["high70"] = high70
                     f.write(json.dumps(decision, ensure_ascii=False) + "\n")
-            except Exception: pass
+            except Exception: _log.exception("决策日志写入失败")
             return decision
         except Exception:
             _log.info(f"[Agent] AI决策回退: 自动搜{remainder[0]}")
             return {"action": "search", "keyword": remainder[0],
                     "city": cities[0]["name"] if cities else "北京", "reason": "回退"}
 
-    async def send_greetings(s, jobs: list[dict]):
+    async def send_greetings(self, jobs: list[dict]):
         """逐条发送招呼语。jobs 格式来自前端: [{encryptJobId, securityId, greeting, company}, ...]
 
         流程：先回到搜索列表页 → 历遍卡片定位目标 → 点沟通按钮 → 弹窗填招呼语 → 发送。
         """
-        if not s._tab:
+        if not self._tab:
             await sse_manager.emit_error("浏览器未就绪")
             return {"ok": False, "error": "浏览器未就绪"}
 
@@ -565,12 +583,12 @@ class AgentRunner:
                 # 打开职位详情页（encryptJobId）
                 url = f"https://www.zhipin.com/job_detail/{encId}.html"
                 _log.info(f"[Send] {idx+1}/{total} 导航到 {url}")
-                await s._tab.get(url); await s._tab.sleep(5)
-                cur_url = s._tab.target.url or ""
+                await self._tab.get(url); await self._tab.sleep(5)
+                cur_url = self._tab.target.url or ""
                 _log.info(f"[Send] {idx+1}/{total} 当前URL: {cur_url[:80]}")
 
                 # 已沟通过则跳过
-                already = await s._tab.evaluate("""
+                already = await self._tab.evaluate("""
                     (function(){
                         var all=document.querySelectorAll('a,button,span,div');
                         for(var i=0;i<all.length;i++){
@@ -585,7 +603,7 @@ class AgentRunner:
 
                 # 点沟通按钮（六种文本变体）
                 btns_json = json.dumps(greet_btns, ensure_ascii=False)
-                clicked = await s._tab.evaluate(f"""
+                clicked = await self._tab.evaluate(f"""
                     (function(){{
                         var targets={btns_json};
                         var all=document.querySelectorAll('a,button,span,div');
@@ -602,7 +620,7 @@ class AgentRunner:
                     continue
 
                 # 取 api_url + redirect-url（聊天页）
-                api_url = await s._tab.evaluate("""
+                api_url = await self._tab.evaluate("""
                     (function(){
                         var el=document.querySelector('.btn-startchat[data-url]');
                         var r={};
@@ -628,7 +646,7 @@ class AgentRunner:
 
                 if add_url:
                     # XHR 调 friend/add.json 建立沟通关系
-                    xhr_result = await s._tab.evaluate(f"""
+                    xhr_result = await self._tab.evaluate(f"""
                         (function(){{
                             var x=new XMLHttpRequest();
                             x.open('POST','{add_url}',false);
@@ -647,12 +665,12 @@ class AgentRunner:
                 if chat_path:
                     chat_full = f"https://www.zhipin.com{chat_path}" if chat_path.startswith('/') else chat_path
                     _log.info(f"[Send] {idx+1}/{total} 聊天页: {chat_full[:120]}")
-                    await s._tab.get(chat_full); await s._tab.sleep(5)
+                    await self._tab.get(chat_full); await self._tab.sleep(5)
 
                     # CDP insert_text + dispatch_key_event
                     try:
                         # 聚焦聊天输入框：排除页面顶部搜索栏，定位聊天容器内的输入元素
-                        found = await s._tab.evaluate("""
+                        found = await self._tab.evaluate("""
                             (function(){
                                 // 在聊天容器内搜索（class含chat/msg/zpchat/conversation的父节点）
                                 var container=document.querySelector('[class*="chat"],[class*="msg"],[class*="zpchat"],[class*="conversation"]');
@@ -671,20 +689,20 @@ class AgentRunner:
                             })()
                         """)
                         _log.info(f"[Send] {idx+1}/{total} 输入框: {found}")
-                        await s._tab.sleep(0.5)
+                        await self._tab.sleep(0.5)
 
                         # CDP 文本输入 + 回车三连（keyDown→char→keyUp）
                         from nodriver.cdp import input_ as cdp_input
-                        await s._tab.send(cdp_input.insert_text(text=greeting))
-                        await s._tab.sleep(0.5)
-                        await s._tab.send(cdp_input.dispatch_key_event(
+                        await self._tab.send(cdp_input.insert_text(text=greeting))
+                        await self._tab.sleep(0.5)
+                        await self._tab.send(cdp_input.dispatch_key_event(
                             type_="keyDown", key="Enter", code="Enter",
                             text="\r", windows_virtual_key_code=13))
-                        await s._tab.sleep(0.08)
-                        await s._tab.send(cdp_input.dispatch_key_event(
+                        await self._tab.sleep(0.08)
+                        await self._tab.send(cdp_input.dispatch_key_event(
                             type_="char", text="\r"))
-                        await s._tab.sleep(0.08)
-                        await s._tab.send(cdp_input.dispatch_key_event(
+                        await self._tab.sleep(0.08)
+                        await self._tab.send(cdp_input.dispatch_key_event(
                             type_="keyUp", key="Enter", code="Enter",
                             text="\r", windows_virtual_key_code=13))
                         _log.info(f"[Send] {idx+1}/{total} CDP完成")
@@ -706,28 +724,28 @@ class AgentRunner:
             "total_sent":ok,"total_failed":total-ok,"results":results})
         return {"ok":True,"total":total,"sent":ok,"results":results}
 
-    async def close_browser(s):
-        if s._browser:
-            try: s._browser.stop()
-            except: pass
-            s._browser = None; s._tab = None
+    async def close_browser(self):
+        if self._browser:
+            try: self._browser.stop()
+            except Exception: _log.debug("browser.stop() failed on close")
+            self._browser = None; self._tab = None
         sse_manager.set_status(AppStatus.IDLE)
 
-    async def _fetch(s, kw, city_code, city_name, pages=1):
+    async def _fetch(self, kw, city_code, city_name, pages=1):
         """搜索页内部XHR调API——Sec-Fetch-Mode:cors，不是地址栏导航。"""
         from urllib.parse import quote
         await sse_manager.emit_status(AppStatus.RUNNING, {"message":f"搜索:{city_name}/{kw}"})
         all_jobs = []; seen_ids = set()
         for page in range(1, pages + 1):
-            if s._stop: break
+            if self._stop: break
             # 导航到正常搜索结果页，不是 API URL
             search_url = f"https://www.zhipin.com/web/geek/job?query={quote(kw)}&city={city_code}"
             api_url = (f"https://www.zhipin.com/wapi/zpgeek/search/joblist.json"
                        f"?query={quote(kw)}&city={city_code}&page={page}&pageSize=30")
             try:
-                await s._tab.get(search_url); await s._tab.sleep(6)
+                await self._tab.get(search_url); await self._tab.sleep(6)
                 # 在页面内部用同步 XHR 调 API，请求头跟真人浏览一模一样
-                raw = await s._tab.evaluate(f"""
+                raw = await self._tab.evaluate(f"""
                     (function(){{
                         var x = new XMLHttpRequest();
                         x.open('GET','{api_url}',false);
@@ -753,24 +771,24 @@ class AgentRunner:
             await asyncio.sleep(random.uniform(1,2))
         return all_jobs
 
-    async def _fetch_jd_detail(s, security_id):
+    async def _fetch_jd_detail(self, security_id):
         try:
             url = f"https://www.zhipin.com/wapi/zpgeek/job/card.json?securityId={security_id}"
-            await s._tab.get(url); await s._tab.sleep(3)
-            raw = await s._tab.evaluate("document.body.innerText")
+            await self._tab.get(url); await self._tab.sleep(3)
+            raw = await self._tab.evaluate("document.body.innerText")
             data = json.loads(raw)
             jd = data.get("zpData", {}).get("jobCard", {}).get("postDescription", "")
             if jd and len(str(jd)) > 100: return str(jd)
-        except Exception: pass
+        except Exception: _log.debug(f"获取JD详情失败 securityId={security_id}")
         return ""
 
-    def _tier_max(s):
+    def _tier_max(self):
         cfg = get_config()
         return {"high":cfg.matching.tiers["high"].count,"medium":cfg.matching.tiers["medium"].count,"try":cfg.matching.tiers["try"].count}
-    def _tier_stats(s):
-        mx = s._tier_max()
-        return {t:{"current":s._tc.get(t,0),"max":mx[t]} for t in ("high","medium","try")}
-    def _read_resume(s):
+    def _tier_stats(self):
+        mx = self._tier_max()
+        return {t:{"current":self._tc.get(t,0),"max":mx[t]} for t in ("high","medium","try")}
+    def _read_resume(self):
         path = get_project_root()/get_config().resume.get("pdf_path","my_resume.pdf")
         if not path.exists(): return "[简历未找到]"
         doc = fitz.open(str(path)); t="\n".join(p.get_text() for p in doc); doc.close(); return t
