@@ -4,8 +4,8 @@ defineProps({ matched: Number, delivered: Number })
 
 <template>
   <footer class="bottom-bar glass">
-    <span class="left">DeepSeek-V3  ·  Chrome 124  ·  队列 {{ matched }} 待处理</span>
-    <span class="right">内存 312MB  ·  已投递 {{ delivered }}  ·  查看日志</span>
+    <span class="left">匹配 {{ matched }} 个 · 已发送 {{ delivered }} 个</span>
+    <span class="right">DeepSeek-V3 · Orchestra Agent</span>
   </footer>
 </template>
 

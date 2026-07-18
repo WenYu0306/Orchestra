@@ -15,6 +15,17 @@ from .sse_manager import sse_manager, AppStatus
 from .validator import check_city, check_salary, check_company
 from dataclasses import dataclass, field
 
+# BOSS 直聘城市代码映射（https://www.zhipin.com）
+BOSS_CODE = {
+    "北京": "101010100",
+    "长春": "101060100",
+    "上海": "101020100",
+    "深圳": "101280600",
+    "杭州": "101210100",
+    "成都": "101270100",
+    "广州": "101280100",
+}
+
 
 @dataclass
 class ScoredJob:
@@ -95,7 +106,6 @@ class AgentRunner:
             _log.info(f"技能剖面: {self._profiles.count(chr(10))+1} 段")
 
             # === Agent 动态调度搜索 ===
-            BOSS_CODE = {"北京": "101010100", "长春": "101060100"}
             cities_cfg = cfg.search.get("cities", [])
             all_scored = []
             city_warnings = set()
@@ -275,7 +285,6 @@ class AgentRunner:
     async def _search_and_score(self, cfg, keywords: list) -> tuple:
         """城市×关键词搜索 + 标签评分 + 过滤。
         返回 (all_scored, city_warnings, salary_skipped)。"""
-        BOSS_CODE = {"北京": "101010100", "长春": "101060100"}
         cities = cfg.search.get("cities", [])
         all_scored = []
         city_warnings = set()
@@ -293,7 +302,7 @@ class AgentRunner:
                 for j in jobs:
                     if self._stop:
                         break
-                    co = j.get("brandName", "") or j.get("brandName", "")
+                    co = j.get("brandName", "")
                     po = j.get("jobName", "")
                     if not co:
                         continue
@@ -356,7 +365,7 @@ class AgentRunner:
         for j in jobs:
             if self._stop:
                 break
-            co = j.get("brandName", "") or j.get("brandName", "")
+            co = j.get("brandName", "")
             po = j.get("jobName", "")
             if not co:
                 continue

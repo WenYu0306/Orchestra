@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import JobCard from './JobCard.vue'
 
 const props = defineProps({ jobs: Array, loading: Boolean, selectedCount: Number })
@@ -11,6 +11,23 @@ const sorts = [
   { key: 'salary', label: '按薪资' },
   { key: 'time', label: '按时间' },
 ]
+
+const sortedJobs = computed(() => {
+  const list = [...props.jobs]
+  if (sort.value === 'score') {
+    list.sort((a, b) => (b.score || 0) - (a.score || 0))
+  } else if (sort.value === 'salary') {
+    const salNum = (s) => {
+      if (!s) return 0
+      const m = String(s).match(/(\d+)/)
+      return m ? parseInt(m[1]) : 0
+    }
+    list.sort((a, b) => salNum(b.salary) - salNum(a.salary))
+  } else if (sort.value === 'time') {
+    list.reverse()
+  }
+  return list
+})
 </script>
 
 <template>
@@ -19,7 +36,7 @@ const sorts = [
     <div class="head">
       <div class="title-group">
         <h2 class="title">匹配职位</h2>
-        <span class="count-pill">{{ jobs.length }} 条</span>
+        <span class="count-pill">{{ sortedJobs.length }} 条</span>
       </div>
       <div class="sort-group">
         <button
@@ -37,7 +54,7 @@ const sorts = [
 
     <!-- 卡片列表 -->
     <TransitionGroup name="card-in" tag="div" class="cards">
-      <JobCard v-for="(job, idx) in jobs" :key="job.securityId || job.encryptJobId || idx"
+      <JobCard v-for="(job, idx) in sortedJobs" :key="job.securityId || job.encryptJobId || idx"
         :job="job" />
     </TransitionGroup>
 

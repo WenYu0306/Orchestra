@@ -37,7 +37,7 @@ def check_salary(job: dict, min_salary: int) -> tuple[bool, str]:
 
 def check_company(job: dict) -> tuple[bool, str]:
     """检查公司名是否为空、乱码或数据提取错误"""
-    co = job.get("brandName", "") or job.get("brandName", "")
+    co = job.get("brandName", "")
     if not co:
         return True, "公司名为空"
     if co == "?":
