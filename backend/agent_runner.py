@@ -13,6 +13,7 @@ from .matcher import match as ds_match
 from .record_manager import record_manager
 from .sse_manager import sse_manager, AppStatus
 from .validator import check_city, check_salary, check_company
+from .vectordb import job_vector_store
 from dataclasses import dataclass, field
 
 # BOSS 直聘城市代码映射（https://www.zhipin.com）
@@ -231,16 +232,17 @@ class AgentRunner:
     async def _launch_and_login(self) -> bool:
         """启动 Chrome + 扫码登录 + Cookie 验证。返回 True 表示成功。"""
         await sse_manager.emit_status(AppStatus.RUNNING, {"message": "启动浏览器..."})
+        headless = os.getenv("CHROME_HEADLESS", "0") == "1"
         chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
         if os.name == "nt":
             chrome_path = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
         elif os.name == "posix" and not __import__('pathlib').Path(chrome_path).exists():
-            chrome_path = "google-chrome"
-        self._browser = await uc.start(headless=False,
+            chrome_path = "google-chrome-stable" if headless else "google-chrome"
+        self._browser = await uc.start(headless=headless,
             browser_executable_path=chrome_path,
             user_data_dir=str(__import__('pathlib').Path(
                 __import__('tempfile').gettempdir()) / "jh-run-1"),
-            no_sandbox=True,
+            no_sandbox=headless or os.getenv("CHROME_NO_SANDBOX") == "1",
             browser_args=["--disable-blink-features=AutomationControlled", "--no-first-run"])
         self._tab = self._browser.main_tab
         await self._tab.get("https://www.zhipin.com/web/geek/job")
@@ -354,14 +356,18 @@ class AgentRunner:
 
     async def _search_one(self, kw: str, city_name: str, city_code: str, min_sal: int) -> list:
         """Agent 原子工具——单个关键词 × 单个城市搜索+过滤+评分。
-        在 Chrome 页面内跑同步 XHR 调 BOSS joblist.json，拿回 30 个岗位，
-        经过城市/公司/薪资三重过滤后，DeepSeek 打快分，返回 scored 元组列表。"""
+
+        两级检索：向量粗筛（TF-IDF 余弦相似度）→ DeepSeek 精排。
+        过滤 30 个岗位后，向量相似度取 top 20 送 LLM，节省 ~30% API 调用。
+        """
         if self._stop:
             return []
         jobs = await self._fetch(kw, city_code, city_name)
         if not jobs:
             return []
-        scored = []
+
+        # 第一道过滤：城市/公司/薪资硬校验
+        candidates: list[tuple[dict, str]] = []  # (job_dict, jd_text)
         for j in jobs:
             if self._stop:
                 break
@@ -369,12 +375,10 @@ class AgentRunner:
             po = j.get("jobName", "")
             if not co:
                 continue
-            ok1, warn1 = check_city(j, city_name)
-            ok2, warn2 = check_company(j)
-            ok3, warn3 = check_salary(j, min_sal)
+            ok1, _w1 = check_city(j, city_name)
+            ok2, _w2 = check_company(j)
+            ok3, _w3 = check_salary(j, min_sal)
             if not (ok1 and ok2 and ok3):
-                for w in (warn1, warn2, warn3):
-                    if w: _log.debug(w)
                 continue
             parts = [po, j.get("salaryDesc", ""), j.get("cityName", ""),
                      j.get("jobExperience", ""), j.get("jobDegree", "")]
@@ -382,8 +386,32 @@ class AgentRunner:
                 v = j.get(k, [])
                 parts.extend(v) if isinstance(v, list) else None
             jd = " ".join(str(p) for p in parts if p)
-            if len(jd) < 10:
+            if len(jd) >= 10:
+                candidates.append((j, jd))
+
+        if not candidates:
+            return []
+
+        # 第二道过滤：向量相似度粗筛
+        N_LLM = min(20, len(candidates))  # 最多送 20 个给 LLM
+        jd_texts = [jd for _, jd in candidates]
+        try:
+            job_vector_store.index(self._resume, jd_texts)
+            ranked = job_vector_store.search(self._resume, top_k=N_LLM, min_score=0.03)
+            top_indices = {i for i, _s in ranked}
+        except Exception:
+            _log.debug("向量检索失败，回退全量 LLM 评分")
+            top_indices = set(range(len(candidates)))
+
+        # 第三道：LLM 精排
+        scored = []
+        for i, (j, jd) in enumerate(candidates):
+            if self._stop:
+                break
+            if i not in top_indices:
                 continue
+            co = j.get("brandName", "")
+            po = j.get("jobName", "")
             await sse_manager.emit_status(AppStatus.RUNNING, {"message": f"评估:{co}"})
             try:
                 m = await asyncio.wait_for(ds_match(self._resume, jd[:3000]), timeout=15.0)
