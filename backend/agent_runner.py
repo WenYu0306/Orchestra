@@ -14,7 +14,11 @@ from .record_manager import record_manager
 from .sse_manager import sse_manager, AppStatus
 from .validator import check_city, check_salary, check_company
 from .vectordb import job_vector_store
+from .platform_adapter import PlatformAdapter, get_adapter, JobCard
 from dataclasses import dataclass, field
+
+# 触发适配器注册
+from .adapters import zhilian  # noqa
 
 # BOSS 直聘城市代码映射（https://www.zhipin.com）
 BOSS_CODE = {
@@ -66,6 +70,15 @@ class AgentRunner:
         self._pe = asyncio.Event(); self._pe.set()
         self._resume = ""
         self._tc = {"high":0,"medium":0,"try":0}; self._ac = set()
+        # 平台适配器
+        cfg = get_config()
+        platform_name = cfg.platform.get("name", "boss")
+        try:
+            self._adapter: PlatformAdapter = get_adapter(platform_name)
+            _log.info(f"平台适配器: {platform_name}")
+        except ValueError:
+            _log.warning(f"未知平台 {platform_name}，回退到 boss")
+            self._adapter: PlatformAdapter = get_adapter("boss")
 
     @property
     def is_running(self): return self._task is not None and not self._task.done()
@@ -84,6 +97,14 @@ class AgentRunner:
 
     async def stop(self):
         self._stop = True; self._pe.set()
+        # 关浏览器让当前的阻塞操作（sleep/evaluate）快速失败
+        if self._browser:
+            try: self._browser.stop()
+            except Exception: _log.debug("browser.stop() failed on stop")
+            self._browser = None; self._tab = None
+        # 取消后台任务
+        if self._task and not self._task.done():
+            self._task.cancel()
         try: await sse_manager.emit_status(AppStatus.IDLE, {"message":"已停止"})
         except Exception: _log.debug("emit_status failed on stop")
 
@@ -99,6 +120,10 @@ class AgentRunner:
 
             if not await self._launch_and_login():
                 return
+
+            # 注入 tab 到适配器（BossAdapter / ZhilianAdapter 都需要）
+            if hasattr(self._adapter, 'bind_tab'):
+                self._adapter.bind_tab(self._tab)
 
             keywords = await self._prepare_keywords(cfg)
             _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")

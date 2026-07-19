@@ -100,9 +100,13 @@ async function handleUploadResume(e) {
   const fd = new FormData(); fd.append('file', f)
   try {
     const r = await fetch('/api/upload-resume', { method: 'POST', body: fd })
-    if (r.ok) notif.value = { type: 'done', text: '简历已上传: ' + f.name }
-    else notif.value = { type: 'error', text: '上传失败' }
-  } catch (ee) { notif.value = { type: 'error', text: '上传失败' } }
+    if (r.ok) {
+      notif.value = { type: 'done', text: '简历已上传: ' + f.name }
+    } else {
+      const d = await r.json().catch(() => ({}))
+      notif.value = { type: 'error', text: '上传失败: ' + (d.detail || r.statusText) }
+    }
+  } catch (ee) { notif.value = { type: 'error', text: '上传失败: ' + (ee.message || ee) } }
 }
 
 async function handleStart() {

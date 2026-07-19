@@ -33,8 +33,8 @@ rm -rf /tmp/jh-* 2>/dev/null || true
 echo "📦 激活虚拟环境..."
 source .venv/bin/activate
 
-echo "🚀 启动后端 (FastAPI :5000)..."
-python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 5000 &
+echo "🚀 启动后端 (FastAPI :5001)..."
+python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 5001 &
 BACKEND_PID=$!
 
 echo "🎨 启动前端 (Vite :5173)..."
@@ -42,7 +42,7 @@ cd frontend && npm run dev &
 FRONTEND_PID=$!
 
 echo ""
-echo "✅ 后端: http://localhost:5000"
+echo "✅ 后端: http://localhost:5001"
 echo "✅ 前端: http://localhost:5173"
 echo ""
 echo "按 Ctrl+C 停止所有服务"

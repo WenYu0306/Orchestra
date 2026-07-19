@@ -68,7 +68,7 @@ class SafetyConfig(BaseModel):
 
 class WebUIConfig(BaseModel):
     host: str = "127.0.0.1"
-    port: int = 5000
+    port: int = 5001
     auto_open: bool = True
 
 
