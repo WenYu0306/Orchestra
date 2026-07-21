@@ -121,9 +121,11 @@ class AgentRunner:
             if not await self._launch_and_login():
                 return
 
-            # 注入 tab 到适配器（BossAdapter / ZhilianAdapter 都需要）
+            # 注入 tab/browser 到适配器
             if hasattr(self._adapter, 'bind_tab'):
                 self._adapter.bind_tab(self._tab)
+            if hasattr(self._adapter, 'bind_browser'):
+                self._adapter.bind_browser(self._browser)
 
             keywords = await self._prepare_keywords(cfg)
             _log.info(f"搜索关键词: {len(keywords)} 个 — {', '.join(keywords[:8])}")

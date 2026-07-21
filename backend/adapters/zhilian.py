@@ -30,74 +30,109 @@ class ZhilianAdapter(PlatformAdapter):
 
     def __init__(self):
         self._tab = None
+        self._browser = None
 
     def bind_tab(self, tab):
         self._tab = tab
 
+    def bind_browser(self, browser):
+        self._browser = browser
+
     # ==== 搜索 ====
+
+    def _load_url_map(self) -> dict[str, str]:
+        """加载预采集的搜索 URL 映射（关键词 → 完整 URL）"""
+        from pathlib import Path as _Path
+        map_path = _Path(__file__).resolve().parent.parent.parent / "data" / "zhilian_urls.json"
+        try:
+            if map_path.exists():
+                import json as _json
+                return _json.loads(map_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return {}
+
+    def _save_url_map(self, url_map: dict) -> None:
+        """保存搜索 URL 映射到文件"""
+        from pathlib import Path as _Path
+        map_path = _Path(__file__).resolve().parent.parent.parent / "data" / "zhilian_urls.json"
+        map_path.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        map_path.write_text(_json.dumps(url_map, ensure_ascii=False, indent=2), encoding="utf-8")
 
     async def search(self, keyword: str, city_name: str, city_code: str,
                      page: int = 1, page_size: int = 30) -> list[JobCard]:
         """
-        导航城市页 → CDP 输入关键词 → Enter → DOM 提取。
-        城市页 URL 格式: https://www.zhaopin.com/beijing/ 或 /citymap/ 跳转
-        """
-        # 城市页面
-        city_pages = {
-            "530": "https://www.zhaopin.com/beijing/",
-            "538": "https://www.zhaopin.com/shanghai/",
-            "489": "https://www.zhaopin.com/shenzhen/",
-        }
-        city_url = city_pages.get(city_code, f"https://www.zhaopin.com/beijing/")
-        await self._tab.get(city_url)
-        await self._tab.sleep(5)
+        CDP 输入 → Enter → 新标签页打开 → 提取卡片。
 
-        # 找搜索框，填关键词
+        浏览器自己编码关键词，根本不需破解算法。
+        采集过的 URL 存到 zhilian_urls.json 加速复用。
+        """
+        url_map = self._load_url_map()
+
+        # 已有缓存的直接走快速通道
+        if keyword in url_map:
+            import re
+            search_url = re.sub(r'/p\d+', f'/p{page}', url_map[keyword])
+            _log.info(f"[智联] 复用缓存: {keyword}")
+            await self._tab.get(search_url)
+            await self._tab.sleep(10)
+            return await self._extract_cards()
+
+        # 首次搜索：CDP 输入 + 拦截新标签页
         from nodriver.cdp import input_ as cdp_input
 
-        # 聚焦搜索框
-        found = await self._tab.evaluate("""
-            (function(){
-                var inp = document.querySelector('input[type="text"], input[placeholder*="搜索"], input[placeholder*="职位"], input[name="keyword"], input.search');
-                if (inp) { inp.focus(); return inp.tagName + '.' + (inp.className||'').substring(0,40); }
-                // 兜底
-                var inputs = document.querySelectorAll('input');
-                for (var i=0; i<inputs.length; i++) {
-                    var ph = (inputs[i].placeholder||'');
-                    if (ph.includes('搜索') || ph.includes('职位') || ph.includes('关键词')) {
-                        inputs[i].focus(); return inputs[i].tagName;
-                    }
-                }
-                return 'NOT_FOUND';
-            })()
-        """)
+        # 1) 城市首页
+        city_pages = {"530": "https://www.zhaopin.com/beijing/"}
+        city_url = city_pages.get(city_code, "https://www.zhaopin.com/beijing/")
+        await self._tab.get(city_url)
+        await self._tab.sleep(6)
 
-        if not found or found == "NOT_FOUND":
-            # 回退：直接导航到搜索 URL（你可能得手动编码）
-            _log.warning(f"[智联] 找不到搜索框，回退 URL 搜索")
-            encoded_url = (
-                f"https://www.zhaopin.com/sou/jl{city_code}"
-                f"/kw{quote(keyword)}/p{page}"
-            )
-            await self._tab.get(encoded_url)
+        # 2) 聚焦 + 输入
+        await self._tab.evaluate("""var i=document.querySelector('.zp-search__input');if(i)i.focus()""")
+        await self._tab.sleep(0.3)
+        await self._tab.send(cdp_input.insert_text(text=keyword))
+        await self._tab.sleep(0.5)
+
+        # 3) 记录当前浏览器 tab 数 + Enter
+        tabs_before = len(self._browser.tabs) if self._browser else 1
+        await self._tab.send(cdp_input.dispatch_key_event(
+            type_="keyDown", key="Enter", code="Enter",
+            text="\r", windows_virtual_key_code=13))
+        await self._tab.sleep(0.08)
+        await self._tab.send(cdp_input.dispatch_key_event(type_="char", text="\r"))
+        await self._tab.sleep(0.08)
+        await self._tab.send(cdp_input.dispatch_key_event(
+            type_="keyUp", key="Enter", code="Enter",
+            text="\r", windows_virtual_key_code=13))
+
+        # 4) 等新标签页出现
+        new_tab = None
+        for t in range(12):
+            await asyncio.sleep(1)
+            if self._browser and len(self._browser.tabs) > tabs_before:
+                new_tab = self._browser.tabs[-1]
+                break
+
+        if new_tab is None:
+            _log.warning(f"[智联] 未检测到新标签页，回退 URL 编码")
+            search_url = f"https://www.zhaopin.com/sou/jl{city_code}/kw{quote(keyword)}/p{page}?kt=3"
+            await self._tab.get(search_url)
             await self._tab.sleep(10)
-        else:
-            # CDP 输入关键词
-            await self._tab.send(cdp_input.insert_text(text=keyword))
-            await self._tab.sleep(0.5)
-            # 按回车搜索
-            await self._tab.send(cdp_input.dispatch_key_event(
-                type_="keyDown", key="Enter", code="Enter",
-                text="\r", windows_virtual_key_code=13))
-            await self._tab.sleep(0.08)
-            await self._tab.send(cdp_input.dispatch_key_event(type_="char", text="\r"))
-            await self._tab.sleep(0.08)
-            await self._tab.send(cdp_input.dispatch_key_event(
-                type_="keyUp", key="Enter", code="Enter",
-                text="\r", windows_virtual_key_code=13))
-            await self._tab.sleep(8)
+            return await self._extract_cards()
 
-        # 提取卡片
+        # 5) 切换到新标签页
+        search_url = new_tab.target.url or ""
+        _log.info(f"[智联] 新标签页: {search_url[:100]}")
+
+        if "/sou/" in search_url:
+            # 保存到缓存
+            url_map[keyword] = search_url
+            self._save_url_map(url_map)
+            _log.info(f"[智联] 已缓存 {keyword}")
+
+        self._tab = new_tab
+        await self._tab.sleep(6)
         return await self._extract_cards()
 
     async def _extract_cards(self) -> list[JobCard]:
@@ -185,22 +220,33 @@ class ZhilianAdapter(PlatformAdapter):
         company = ""
         attr_re = re.compile(
             r'(民营|国企|外资|上市|股份制|合资|外商|事业单位|政府|NGO|其它|'
-            r'\d+[-~]\d+人|\d+人以上|\d+人以下|[百千万亿]余人?|'
+            r'\d+[-~]\d+人|\d+人以上|\d+人以下|\d+人|[百千万亿]余人?|'
+            r'\d+[-~]\d+年|经验不限|经验|应届|'
             r'优选雇主|最佳雇主|高回复率|昨日活跃|今日活跃|刚刚活跃|小时内回复|'
             r'不需要融资|已上市|天使轮|[ABCDE]轮|未融资|'
             r'软件/|IT服务|互联网|人工智能|计算机|教育科技|'
             r'投资与|咨询服务|课外培训|人力资源|'
-            r'计算机硬件|其他制造|互联网社交|工业自动化|通信|银行|保险|证券)'
+            r'计算机硬件|专用设备|工业自动化|通信|银行|保险|证券)'
         )
+        # 纯技术词（不含公司后缀的短行），注意必须整行匹配避免误杀
+        tech_re = re.compile(
+            r'^(大模型算法|大数据|自然语言处理|深度学习|机器学习|计算机视觉|'
+            r'Python|Java|React|Golang|Node|RAG|LLM|NLP|CV|'
+            r'C\+\+|TensorFlow|PyTorch|Docker|Kubernetes)$'
+        )
+        co_suffix = re.compile(r'(公司|有限|股份|集团|科技|网络|信息|数据|文化|传媒|咨询|'
+                               r'工作室|事务所|中心|实验室)')
         for i in range(hr_idx - 1, -1, -1):
             l = lines[i]
-            if '·' in l or '(' in l or '/' in l:
+            if '·' in l or '(' in l or '/' in l or '.' in l:
                 continue
-            if attr_re.search(l):
+            if attr_re.search(l) or tech_re.match(l):
                 continue
-            if len(l) >= 4:
-                company = l
-                break
+            # ≤3字且无公司后缀 → 属性/标签
+            if len(l) <= 3 and not co_suffix.search(l):
+                continue
+            company = l
+            break
 
         # 3) 薪资 + 职位名（首部往下找）
         salary_desc = ""
@@ -233,6 +279,9 @@ class ZhilianAdapter(PlatformAdapter):
                     degree = p
 
         if not position or not company:
+            return None
+        # 公司名等于职位名 → 卡片没有真实公司名，丢弃
+        if company == position:
             return None
 
         return JobCard(
