@@ -70,15 +70,18 @@ class AgentRunner:
         self._pe = asyncio.Event(); self._pe.set()
         self._resume = ""
         self._tc = {"high":0,"medium":0,"try":0}; self._ac = set()
-        # 平台适配器
+        # 平台适配器（boss 不加载适配器，走原有硬编码逻辑）
         cfg = get_config()
         platform_name = cfg.platform.get("name", "boss")
-        try:
-            self._adapter: PlatformAdapter = get_adapter(platform_name)
-            _log.info(f"平台适配器: {platform_name}")
-        except ValueError:
-            _log.warning(f"未知平台 {platform_name}，回退到 boss")
-            self._adapter: PlatformAdapter = get_adapter("boss")
+        self._platform = platform_name
+        self._adapter: PlatformAdapter | None = None
+        if platform_name != "boss":
+            try:
+                self._adapter = get_adapter(platform_name)
+                _log.info(f"平台适配器: {platform_name}")
+            except ValueError:
+                _log.warning(f"未知平台 {platform_name}，改用 boss")
+                self._platform = "boss"
 
     @property
     def is_running(self): return self._task is not None and not self._task.done()
@@ -144,11 +147,12 @@ class AgentRunner:
             # 首轮：每个城市 × 前 3 个关键词摸底
             init_kw = keywords[:3]
             used_kw.update(init_kw)
+            city_map = self._adapter.city_codes if self._adapter else BOSS_CODE
             for kw in init_kw:
                 if self._stop: break
                 for c in cities_cfg:
                     if self._stop: break
-                    cc = BOSS_CODE.get(c["name"], "101010100")
+                    cc = city_map.get(c["name"], list(city_map.values())[0] if city_map else "101010100")
                     ms = c.get("min_salary", 0)
                     loop += 1
                     round_scored = await self._search_one(kw, c["name"], cc, ms)
@@ -183,7 +187,7 @@ class AgentRunner:
                 kw = dec.get("keyword", remainder[0]) if dec.get("keyword") in remainder else remainder[0]
                 city_name = dec.get("city", cities_cfg[0]["name"])
                 c_match = next((cc for cc in cities_cfg if cc["name"] == city_name), cities_cfg[0])
-                cc = BOSS_CODE.get(c_match["name"], "101010100")
+                cc = city_map.get(c_match["name"], list(city_map.values())[0] if city_map else "101010100")
                 ms = c_match.get("min_salary", 0)
 
                 loop += 1
@@ -257,7 +261,7 @@ class AgentRunner:
         return keywords
 
     async def _launch_and_login(self) -> bool:
-        """启动 Chrome + 扫码登录 + Cookie 验证。返回 True 表示成功。"""
+        """启动 Chrome + 扫码登录 + Cookie 验证。BOSS 和智联走不同流程。"""
         await sse_manager.emit_status(AppStatus.RUNNING, {"message": "启动浏览器..."})
         headless = os.getenv("CHROME_HEADLESS", "0") == "1"
         chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -265,50 +269,72 @@ class AgentRunner:
             chrome_path = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
         elif os.name == "posix" and not __import__('pathlib').Path(chrome_path).exists():
             chrome_path = "google-chrome-stable" if headless else "google-chrome"
+
+        # 不同平台用不同 profile 目录，避免 cookie 冲突
+        profile_dir = "jh-run-1" if self._platform == "boss" else "jh-zhilian"
         self._browser = await uc.start(headless=headless,
             browser_executable_path=chrome_path,
             user_data_dir=str(__import__('pathlib').Path(
-                __import__('tempfile').gettempdir()) / "jh-run-1"),
+                __import__('tempfile').gettempdir()) / profile_dir),
             no_sandbox=headless or os.getenv("CHROME_NO_SANDBOX") == "1",
             browser_args=["--disable-blink-features=AutomationControlled", "--no-first-run"])
         self._tab = self._browser.main_tab
-        await self._tab.get("https://www.zhipin.com/web/geek/job")
+
+        login_url = self._adapter.login_url if self._adapter else "https://www.zhipin.com/web/geek/job"
+        await self._tab.get(login_url)
         await self._tab.sleep(8)
 
-        cur = self._tab.target.url or ""
-        if "/user/" in cur or "login" in cur.lower() or "passport" in cur.lower() or "/geek/job" not in cur:
-            await sse_manager.emit_status(AppStatus.RUNNING, {"message": "请扫码登录"})
+        # === BOSS 登录验证 ===
+        if self._platform == "boss":
+            cur = self._tab.target.url or ""
+            if "/user/" in cur or "login" in cur.lower() or "passport" in cur.lower() or "/geek/job" not in cur:
+                await sse_manager.emit_status(AppStatus.RUNNING, {"message": "请扫码登录"})
+                for _ in range(180):
+                    if self._stop:
+                        return False
+                    await asyncio.sleep(2)
+                    cur = self._tab.target.url or ""
+                    if "/geek/job" in cur and "login" not in cur.lower() and "/user/" not in cur and "passport" not in cur.lower():
+                        await self._tab.sleep(3)
+                        break
+                else:
+                    await sse_manager.emit_error("登录超时")
+                    return False
+
+            await self._tab.sleep(5)
+            # BOSS cookie 验证
+            verify_ok = False
+            for _ in range(3):
+                try:
+                    await self._tab.get("https://www.zhipin.com/wapi/zpgeek/search/joblist.json?query=AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91&city=101010100&page=1&pageSize=1")
+                    await self._tab.sleep(2)
+                    raw = await self._tab.evaluate("document.body.innerText")
+                    if raw and isinstance(raw, str) and '"code":0' in raw and '"jobList"' in raw:
+                        verify_ok = True
+                        break
+                except Exception:
+                    await asyncio.sleep(1)
+            if not verify_ok:
+                await sse_manager.emit_error("登录验证失败，cookie未生效，请重启重试")
+                return False
+            _log.info("BOSS Cookie 验证通过")
+
+        # === 智联登录验证（手动扫码，无 API 验证） ===
+        else:
+            await sse_manager.emit_status(AppStatus.RUNNING, {"message": "请登录智联招聘"})
             for _ in range(180):
                 if self._stop:
                     return False
                 await asyncio.sleep(2)
-                cur = self._tab.target.url or ""
-                if "/geek/job" in cur and "login" not in cur.lower() and "/user/" not in cur and "passport" not in cur.lower():
+                title = await self._tab.evaluate("document.title")
+                # 登录后标题通常变为搜索结果页或首页
+                if title and isinstance(title, str) and "登录" not in title and len(title) > 5:
                     await self._tab.sleep(3)
                     break
             else:
-                await sse_manager.emit_error("登录超时")
-                return False
+                _log.warning("智联登录等待超时，继续尝试")
+            _log.info("智联登录验证完成")
 
-        await self._tab.sleep(5)
-
-        # cookie 验证
-        verify_ok = False
-        for _ in range(3):
-            try:
-                await self._tab.get("https://www.zhipin.com/wapi/zpgeek/search/joblist.json?query=AI%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91&city=101010100&page=1&pageSize=1")
-                await self._tab.sleep(2)
-                raw = await self._tab.evaluate("document.body.innerText")
-                if raw and isinstance(raw, str) and '"code":0' in raw and '"jobList"' in raw:
-                    verify_ok = True
-                    break
-            except Exception:
-                await asyncio.sleep(1)
-        if not verify_ok:
-            await sse_manager.emit_error("登录验证失败，cookie未生效，请重启重试")
-            return False
-
-        _log.info("Cookie 验证通过")
         return True
 
     async def _search_and_score(self, cfg, keywords: list) -> tuple:
@@ -384,11 +410,55 @@ class AgentRunner:
     async def _search_one(self, kw: str, city_name: str, city_code: str, min_sal: int) -> list:
         """Agent 原子工具——单个关键词 × 单个城市搜索+过滤+评分。
 
-        两级检索：向量粗筛（TF-IDF 余弦相似度）→ DeepSeek 精排。
-        过滤 30 个岗位后，向量相似度取 top 20 送 LLM，节省 ~30% API 调用。
+        BOSS：XHR API → validator → 向量粗筛 → LLM 精排
+        智联：adapter.search() → 向量粗筛 → LLM 精排
         """
         if self._stop:
             return []
+
+        # === 智联平台：走适配器 ===
+        if self._adapter is not None:
+            try:
+                cards = await self._adapter.search(kw, city_name, city_code)
+            except Exception as e:
+                _log.error(f"[智联] 搜索失败: {e}")
+                return []
+            if not cards:
+                return []
+            # JobCard → jd_text，用适配器已解析的数据
+            candidates = [(c, c.to_jd_text()) for c in cards if len(c.to_jd_text()) >= 10]
+            if not candidates:
+                return []
+
+            # 向量粗筛
+            N_LLM = min(20, len(candidates))
+            jd_texts = [jd for _, jd in candidates]
+            try:
+                job_vector_store.index(self._resume, jd_texts)
+                ranked = job_vector_store.search(self._resume, top_k=N_LLM, min_score=0.03)
+                top_indices = {i for i, _s in ranked}
+            except Exception:
+                top_indices = set(range(len(candidates)))
+
+            # LLM 精排
+            scored = []
+            for i, (c, jd) in enumerate(candidates):
+                if self._stop: break
+                if i not in top_indices: continue
+                await sse_manager.emit_status(AppStatus.RUNNING, {"message": f"评估:{c.company}"})
+                try:
+                    m = await asyncio.wait_for(ds_match(self._resume, jd[:3000]), timeout=15.0)
+                except asyncio.TimeoutError:
+                    continue
+                s = m["score"]
+                if s < 40 or m.get("is_fake_job") or m["confidence"] == "low":
+                    continue
+                scored.append(ScoredJob(score=s, company=c.company, position=c.position,
+                    jd=jd, keyword=kw, city=city_name, match=m,
+                    security_id=c.security_id or "", encrypt_job_id=c.encrypt_job_id or ""))
+            return scored
+
+        # === BOSS 平台：走 XHR API ===
         jobs = await self._fetch(kw, city_code, city_name)
         if not jobs:
             return []
@@ -620,15 +690,34 @@ class AgentRunner:
                     "city": cities[0]["name"] if cities else "北京", "reason": "回退"}
 
     async def send_greetings(self, jobs: list[dict]):
-        """逐条发送招呼语。jobs 格式来自前端: [{encryptJobId, securityId, greeting, company}, ...]
-
-        流程：先回到搜索列表页 → 历遍卡片定位目标 → 点沟通按钮 → 弹窗填招呼语 → 发送。
-        """
+        """逐条发送招呼语。BOSS 走 CDP，智联走 adapter。"""
         if not self._tab:
             await sse_manager.emit_error("浏览器未就绪")
             return {"ok": False, "error": "浏览器未就绪"}
 
         _log.info(f"[Send] 收到 {len(jobs)} 条: {[(j.get('company','?'),j.get('encryptJobId','')[:20],j.get('greeting','')[:30]) for j in jobs]}")
+
+        # === 智联平台：走适配器 ===
+        if self._adapter is not None:
+            results = []
+            for idx, job in enumerate(jobs):
+                c = JobCard(company=job.get("company", ""), position="",
+                           security_id=job.get("securityId", job.get("encryptJobId", "")),
+                           encrypt_job_id=job.get("encryptJobId", ""),
+                           salary_desc="", city="", experience="", degree="")
+                try:
+                    await sse_manager.emit_status(AppStatus.RUNNING,
+                        {"message": f"发送: {idx+1}/{len(jobs)} {c.company}"})
+                    r = await self._adapter.send_greeting(c, job.get("greeting", ""))
+                    results.append({"company": c.company, "ok": r.get("ok", False),
+                                   "reason": r.get("reason", "")})
+                except Exception as e:
+                    results.append({"company": c.company, "ok": False, "reason": str(e)})
+                await asyncio.sleep(random.uniform(10, 20))
+            ok = sum(1 for r in results if r.get("ok"))
+            return {"ok": True, "total": len(jobs), "sent": ok, "results": results}
+
+        # === BOSS 平台：走 CDP ===
         greet_btns = ["立即沟通","发起沟通","沟通一下","聊一聊","联系Ta","开始沟通"]
         results = []; total = len(jobs)
 
