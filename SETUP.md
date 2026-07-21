@@ -172,7 +172,7 @@ python3 check.py
 
 **一行搞定（Mac 和 Windows 都行的）：**
 ```bash
-python3 -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 5000
+python3 -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 5001
 ```
 
 看到终端打印 `Application startup complete` 说明后端启动了。
