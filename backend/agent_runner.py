@@ -276,7 +276,7 @@ class AgentRunner:
             browser_executable_path=chrome_path,
             user_data_dir=str(__import__('pathlib').Path(
                 __import__('tempfile').gettempdir()) / profile_dir),
-            no_sandbox=headless or os.getenv("CHROME_NO_SANDBOX") == "1",
+            no_sandbox=True,
             browser_args=["--disable-blink-features=AutomationControlled", "--no-first-run"])
         self._tab = self._browser.main_tab
 
@@ -431,11 +431,11 @@ class AgentRunner:
                 return []
 
             # 向量粗筛
-            N_LLM = min(20, len(candidates))
+            N_LLM = min(30, len(candidates))
             jd_texts = [jd for _, jd in candidates]
             try:
                 job_vector_store.index(self._resume, jd_texts)
-                ranked = job_vector_store.search(self._resume, top_k=N_LLM, min_score=0.03)
+                ranked = job_vector_store.search(self._resume, top_k=N_LLM, min_score=0)
                 top_indices = {i for i, _s in ranked}
             except Exception:
                 top_indices = set(range(len(candidates)))
@@ -490,11 +490,11 @@ class AgentRunner:
             return []
 
         # 第二道过滤：向量相似度粗筛
-        N_LLM = min(20, len(candidates))  # 最多送 20 个给 LLM
+        N_LLM = min(30, len(candidates))  # 最多送 20 个给 LLM
         jd_texts = [jd for _, jd in candidates]
         try:
             job_vector_store.index(self._resume, jd_texts)
-            ranked = job_vector_store.search(self._resume, top_k=N_LLM, min_score=0.03)
+            ranked = job_vector_store.search(self._resume, top_k=N_LLM, min_score=0)
             top_indices = {i for i, _s in ranked}
         except Exception:
             _log.debug("向量检索失败，回退全量 LLM 评分")
