@@ -24,6 +24,10 @@ import sys
 import zipfile
 from pathlib import Path
 
+# Windows 管道输出默认 cp1252，本脚本 print 的 ⚙/✅/❌ 会直接 UnicodeEncodeError
+# （2026-11-14 Windows CI 实测崩溃）；强制 UTF-8，macOS/Linux 上是无操作
+sys.stdout.reconfigure(encoding="utf-8")
+
 ROOT = Path(__file__).resolve().parent
 RELEASE_DIR = ROOT / "dist-release"
 PYI_DIST = ROOT / ".pyi-out"
