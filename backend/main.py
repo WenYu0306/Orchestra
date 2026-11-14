@@ -155,13 +155,21 @@ async def upload_resume(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="请上传 PDF 文件")
     save_path = get_project_root() / "my_resume.pdf"
-    # 原子替换：先写临时文件再 os.replace。旧实现先 unlink 旧文件——
-    # Windows 下 PDF 被阅读器锁定时 unlink 抛错=上传失败且旧简历已被删；
-    # os.replace 对被占用文件抛 PermissionError → 旧文件无损，给人话提示
+    # 上传时即验证内容可解析且文本足够（防恶意/误传：图片版、扫描件、改名文件）——
+    # 否则垃圾 PDF 一直躺到运行阶段才炸，买家排查成本高
     tmp_path = save_path.with_suffix(".pdf.tmp")
     content = await file.read()
     with open(tmp_path, "wb") as f:
         f.write(content)
+    try:
+        from pdfminer.high_level import extract_text
+        text = extract_text(str(tmp_path)) or ""
+    except Exception:
+        text = ""
+    if len(text.strip()) < 50:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400,
+            detail="这份 PDF 解析不出足够的文字内容——可能是扫描件/图片版简历或文件损坏，请上传可选中文字的文字版 PDF")
     try:
         os.replace(tmp_path, save_path)
     except PermissionError:
@@ -354,8 +362,6 @@ async def save_settings(req: SettingsRequest):
         raise HTTPException(status_code=500, detail=f"保存失败: {e}")
 
 
-@app.post("/api/verify-key",
-          summary="校验 DeepSeek Key", description="粘贴即校验：返回有效性与余额，不保存")
 async def _check_key(key: str) -> dict:
     """校验 DeepSeek Key（零成本）：余额接口优先，代理 base_url 无此端点时回退模型列表。
 
@@ -388,6 +394,8 @@ async def _check_key(key: str) -> dict:
         return {"valid": False, "balance": None, "message": f"网络异常，无法连接 DeepSeek：{e}"}
 
 
+@app.post("/api/verify-key",
+          summary="校验 DeepSeek Key", description="粘贴即校验：返回有效性与余额，不保存")
 async def verify_key(req: VerifyKeyRequest):
     """向导第 3 步用：粘贴即校验。"""
     key = req.key.strip()
