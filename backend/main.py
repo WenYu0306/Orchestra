@@ -102,16 +102,9 @@ async def lifespan(app: FastAPI):
     # 退出时始终关闭 Agent Chrome——孤儿 Chrome 会锁住 data/chrome-profile，
     # 下次启动登录态读取失败（桌面壳"关窗即退净"的最后一环）
     await agent_runner.close_browser()
-    # 关闭各模块的共享 httpx 客户端，避免连接句柄泄漏
-    from . import matcher as _matcher, greeting_generator as _greet, search_generator as _search
-    from . import agent_runner as _ar_mod
-    for client in (_matcher._shared_client, _greet._shared_client,
-                   _search._shared_client, _ar_mod._agent_shared_client):
-        if client is not None:
-            try:
-                await client.aclose()
-            except Exception as e:
-                print(f"⚠ httpx 客户端关闭失败: {e}")
+    # 关闭共享 httpx 客户端（此前四个模块各养一个，已收敛到 backend/llm.py）
+    from . import llm as _llm
+    await _llm.aclose()
 
 
 # ============ FastAPI 实例 ============
@@ -140,7 +133,6 @@ app.add_middleware(
 class StatusResponse(BaseModel):
     status: str = "idle"
     is_running: bool = False
-    is_paused: bool = False
     tier_counts: dict = {}
     total_applied: int = 0
     pending_count: int = 0
@@ -163,15 +155,19 @@ async def upload_resume(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="请上传 PDF 文件")
     save_path = get_project_root() / "my_resume.pdf"
-    # 删旧文件——可能被锁或正在用，先试删
-    if save_path.exists():
-        try:
-            save_path.unlink()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"无法替换旧文件: {e}")
+    # 原子替换：先写临时文件再 os.replace。旧实现先 unlink 旧文件——
+    # Windows 下 PDF 被阅读器锁定时 unlink 抛错=上传失败且旧简历已被删；
+    # os.replace 对被占用文件抛 PermissionError → 旧文件无损，给人话提示
+    tmp_path = save_path.with_suffix(".pdf.tmp")
     content = await file.read()
-    with open(save_path, "wb") as f:
+    with open(tmp_path, "wb") as f:
         f.write(content)
+    try:
+        os.replace(tmp_path, save_path)
+    except PermissionError:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400,
+            detail="简历文件被其他程序占用（可能正被 PDF 阅读器打开），请关闭后重试")
     return UploadResumeResponse(ok=True, filename=file.filename)
 
 
@@ -182,7 +178,6 @@ async def get_status():
     return StatusResponse(
         status=sse_manager.status.value,
         is_running=agent_runner.is_running,
-        is_paused=agent_runner.is_paused,
         tier_counts=record_manager.get_tier_counts(),
         total_applied=record_manager.get_record_count(),
         pending_count=len(record_manager.get_all_pending()),
@@ -192,7 +187,21 @@ async def get_status():
 @app.post("/api/start", response_model=StartResponse,
           summary="启动任务", description="启动 Agent 搜索评分流程：开浏览器→登录→搜→评→分层→问候语")
 async def start_task():
-    """启动投递任务"""
+    """启动投递任务。开始前预检 DeepSeek Key（仅在拿到确定性结论时拦截，
+    网络异常不阻塞——运行链路自身有失败熔断）。"""
+    key = os.getenv("DEEPSEEK_API_KEY", "")
+    if key and not key.startswith("your_"):
+        pre = await _check_key(key)
+        if pre["valid"] is False and ("无效" in pre["message"] or "余额" in pre["message"]):
+            raise HTTPException(status_code=409, detail=pre["message"])
+        # 余额接口给出了数值且为 0 → 提前拦截（否则跑到评分阶段才 402）
+        if pre.get("balance"):
+            try:
+                if float(pre["balance"].split()[0]) <= 0:
+                    raise HTTPException(status_code=409,
+                        detail="DeepSeek 余额不足——请到 platform.deepseek.com 充值后重试")
+            except ValueError:
+                pass
     try:
         await agent_runner.start()
         return StartResponse(success=True, message="投递任务已启动")
@@ -211,20 +220,6 @@ async def stop_task():
         return StartResponse(success=True, message="投递任务已停止")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"停止失败: {str(e)}")
-
-
-@app.post("/api/resume", response_model=StartResponse,
-          summary="继续任务", description="手动处理完验证码后调用此接口恢复运行")
-async def resume_task():
-    """处理完验证码后继续"""
-    if not agent_runner.is_paused:
-        raise HTTPException(status_code=400, detail="当前不需要处理验证码")
-
-    try:
-        await agent_runner.resume_after_captcha()
-        return StartResponse(success=True, message="已继续")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"继续失败: {str(e)}")
 
 
 @app.get("/api/records",
@@ -361,11 +356,11 @@ async def save_settings(req: SettingsRequest):
 
 @app.post("/api/verify-key",
           summary="校验 DeepSeek Key", description="粘贴即校验：返回有效性与余额，不保存")
-async def verify_key(req: VerifyKeyRequest):
-    """向导第 3 步用：调 DeepSeek 余额接口验证 Key（零成本），代理 base_url 无此端点时回退模型列表。"""
-    key = req.key.strip()
-    if not key:
-        raise HTTPException(status_code=400, detail="请输入 Key")
+async def _check_key(key: str) -> dict:
+    """校验 DeepSeek Key（零成本）：余额接口优先，代理 base_url 无此端点时回退模型列表。
+
+    向导 verify-key 与 /api/start 启动预检共用。
+    """
     import httpx
     base = get_llm_base_url("deepseek").rstrip("/")
     balance_url = (base[:-3] if base.endswith("/v1") else base) + "/user/balance"
@@ -374,7 +369,7 @@ async def verify_key(req: VerifyKeyRequest):
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(balance_url, headers=headers)
             if r.status_code == 401:
-                return {"valid": False, "balance": None, "message": "Key 无效，请检查是否复制完整"}
+                return {"valid": False, "balance": None, "message": "DeepSeek Key 无效，请检查是否复制完整"}
             if r.status_code == 200:
                 infos = (r.json().get("balance_infos") or [])
                 balance = next((f"{i.get('total_balance')} {i.get('currency')}"
@@ -386,11 +381,19 @@ async def verify_key(req: VerifyKeyRequest):
             if r2.status_code == 200:
                 return {"valid": True, "balance": None, "message": "Key 有效"}
             if r2.status_code == 401:
-                return {"valid": False, "balance": None, "message": "Key 无效，请检查是否复制完整"}
+                return {"valid": False, "balance": None, "message": "DeepSeek Key 无效，请检查是否复制完整"}
             return {"valid": False, "balance": None,
                     "message": f"校验失败（HTTP {r.status_code}），请稍后重试"}
     except httpx.HTTPError as e:
         return {"valid": False, "balance": None, "message": f"网络异常，无法连接 DeepSeek：{e}"}
+
+
+async def verify_key(req: VerifyKeyRequest):
+    """向导第 3 步用：粘贴即校验。"""
+    key = req.key.strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="请输入 Key")
+    return await _check_key(key)
 
 
 @app.post("/api/login", response_model=StartResponse,
@@ -452,70 +455,6 @@ async def close_browser():
         raise HTTPException(status_code=409, detail="正在发送招呼语，请先等待完成或停止")
     await agent_runner.close_browser()
     return {"ok": True, "message": "浏览器已关闭"}
-
-
-# ============ 快速测试（验证 AI 链路） ============
-
-@app.get("/api/test",
-         summary="AI 链路验证", description="不开浏览器纯测 AI：读简历→搜词生成→JD 打分")
-async def test_pipeline():
-    """快速测试：简历读取 → 搜索词生成 → JD 匹配打分，不开浏览器"""
-    import time
-    results = {"steps": [], "errors": []}
-
-    # Step 1: 读取简历
-    t0 = time.time()
-    try:
-        resume_text = agent_runner._read_resume()
-        results["steps"].append({
-            "step": "读取简历",
-            "ok": True,
-            "chars": len(resume_text),
-            "elapsed_ms": int((time.time() - t0) * 1000),
-        })
-    except Exception as e:
-        results["steps"].append({"step": "读取简历", "ok": False, "error": str(e)})
-        results["errors"].append(f"读取简历: {e}")
-        return results
-
-    # Step 2: 生成搜索方向
-    t0 = time.time()
-    try:
-        from .search_generator import generate as sg_gen
-        directions = await sg_gen(resume_text)
-        results["steps"].append({
-            "step": "搜索词生成",
-            "ok": True,
-            "directions": directions,
-            "elapsed_ms": int((time.time() - t0) * 1000),
-        })
-    except Exception as e:
-        results["steps"].append({"step": "搜索词生成", "ok": False, "error": str(e)})
-        results["errors"].append(f"搜索词生成: {e}")
-
-    # Step 3: JD 匹配打分（用一段示例 JD）
-    t0 = time.time()
-    try:
-        from .matcher import match as ds_match
-        sample_jd = (
-            "职位：AI应用开发工程师。"
-            "要求：精通Python，有LLM应用开发经验，熟悉LangChain、向量数据库。"
-            "加分项：全栈能力、有跨行业项目经验。"
-            "薪资：20K-35K，工作地点：北京。"
-        )
-        match_result = await ds_match(resume_text, sample_jd)
-        results["steps"].append({
-            "step": "JD匹配打分",
-            "ok": True,
-            "sample_jd": sample_jd,
-            "result": match_result,
-            "elapsed_ms": int((time.time() - t0) * 1000),
-        })
-    except Exception as e:
-        results["steps"].append({"step": "JD匹配打分", "ok": False, "error": str(e)})
-        results["errors"].append(f"JD匹配打分: {e}")
-
-    return results
 
 
 # ============ 根路径：有构建产物直接给页面，开发模式跳转 Vite ============

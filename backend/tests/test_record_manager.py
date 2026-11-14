@@ -22,7 +22,7 @@ def _fresh_manager(tmpdir: Path) -> RecordManager:
     m._pending_path = tmpdir / "pending_jobs.json"
     m._applied = []
     m._pending = []
-    m._applied_companies = set()
+    m._sent_jobs = set()
     m._tier_counts = {"high": 0, "medium": 0, "try": 0}
     m._session_start = 0
     return m
@@ -42,32 +42,56 @@ def test_add_record_and_persist(tmp_path):
 
 def test_reset_session_keeps_history(tmp_path):
     """回归：旧实现 reset_session 清空内存记录，下一次 add_record 会把文件覆盖成
-    只剩本次会话 → 跨会话去重失效。新实现必须保留历史。"""
+    只剩本次会话 → 跨会话去重失效。新实现必须保留历史（含去重集合重建）。"""
     m = _fresh_manager(tmp_path)
-    m.add_record("公司A", "岗位", 90, "r", "high")
-    m.add_record("公司B", "岗位", 80, "r", "high")
+    m.add_record("公司A", "岗位", 90, "r", "high", encrypt_job_id="eA")
+    m.add_record("公司B", "岗位", 80, "r", "high", encrypt_job_id="eB")
     assert len(m.get_all_records()) == 2
+    m.mark_sent("公司A", "eA", "sent")
+    m.mark_sent("公司B", "eB", "sent")
 
     m.reset_session()
-    # 会话视图清零，但历史仍在、去重仍然生效
+    # 会话视图清零，但历史仍在、职位级去重仍然生效
     assert m.get_all_records() == []
-    assert m.is_company_recent("公司A")
+    assert m.is_job_recent("公司A", "eA")
 
     m.add_record("公司C", "岗位", 70, "r", "medium")
     on_disk = json.loads(m._applied_path.read_text(encoding="utf-8"))
     assert len(on_disk) == 3, f"历史被覆盖！文件里只剩 {len(on_disk)} 条"
-    assert m.is_company_recent("公司B")
+    assert m.is_job_recent("公司B", "eB")
     print("test_reset_session_keeps_history PASS")
 
 
-def test_recent_window_30_days(tmp_path):
+def test_sent_blocks_permanently(tmp_path):
+    """sent 职位永久拉黑（旧版 30 天窗口已废——发过的职位就是发过了）"""
     m = _fresh_manager(tmp_path)
-    old_ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 31 * 86400))
-    m._applied = [{"company": "旧公司", "tier": "high", "status": "dry_run", "timestamp": old_ts}]
-    m._rebuild_companies()
-    assert not m.is_company_recent("旧公司")
-    assert m.is_company_recent("旧公司", days=60)
-    print("test_recent_window_30_days PASS")
+    m.add_record("旧公司", "岗位", 90, "r", "high", encrypt_job_id="e1")
+    m.mark_sent("旧公司", "e1", "sent")
+    assert m.is_job_recent("旧公司", "e1")
+    m.reset_session()
+    assert m.is_job_recent("旧公司", "e1")
+    print("test_sent_blocks_permanently PASS")
+
+
+def test_dry_run_does_not_block(tmp_path):
+    """dry_run（评过但没发）不拉黑——忘发送的岗位次日仍会出现（2026-11-14 行为变更）"""
+    m = _fresh_manager(tmp_path)
+    m.add_record("未发送公司", "岗位", 90, "r", "high", encrypt_job_id="eid1", status="dry_run")
+    assert not m.is_job_recent("未发送公司", "eid1")
+    m.mark_sent("未发送公司", "eid1", "sent")
+    assert m.is_job_recent("未发送公司", "eid1")
+    print("test_dry_run_does_not_block PASS")
+
+
+def test_same_company_different_jobs_both_sendable(tmp_path):
+    """职位级去重：同公司不同职位互不拉黑（2026-11-14 由公司级改为职位级）"""
+    m = _fresh_manager(tmp_path)
+    m.add_record("某公司", "岗位一", 90, "r", "high", encrypt_job_id="job1")
+    m.add_record("某公司", "岗位二", 85, "r", "high", encrypt_job_id="job2")
+    m.mark_sent("某公司", "job1", "sent")
+    assert m.is_job_recent("某公司", "job1")
+    assert not m.is_job_recent("某公司", "job2")
+    print("test_same_company_different_jobs_both_sendable PASS")
 
 
 def test_mark_sent_and_daily_count(tmp_path):
@@ -81,14 +105,15 @@ def test_mark_sent_and_daily_count(tmp_path):
     print("test_mark_sent_and_daily_count PASS")
 
 
-def test_send_failed_unblocks_company(tmp_path):
-    """发送失败的公司不应被永久拉黑——下次运行可以重试"""
+def test_send_failed_unblocks_job(tmp_path):
+    """发送失败的职位不拉黑——下次运行可以重试"""
     m = _fresh_manager(tmp_path)
     m.add_record("失败公司", "岗位", 90, "r", "high", encrypt_job_id="eid1")
-    assert m.is_company_recent("失败公司")
+    m.mark_sent("失败公司", "eid1", "sent")
+    assert m.is_job_recent("失败公司", "eid1")
     m.mark_sent("失败公司", "eid1", "send_failed")
-    assert not m.is_company_recent("失败公司")
-    print("test_send_failed_unblocks_company PASS")
+    assert not m.is_job_recent("失败公司", "eid1")
+    print("test_send_failed_unblocks_job PASS")
 
 
 def test_corrupt_file_backed_up(tmp_path):

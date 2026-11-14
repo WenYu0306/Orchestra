@@ -29,18 +29,11 @@ class TierConfig(BaseModel):
     min_score: int
 
 
-class VectorPrefilterConfig(BaseModel):
-    """TF-IDF 向量粗筛（vectordb.py）。min_score=0 表示不过滤，仅排序。"""
-    enabled: bool = True
-    min_score: float = 0.0
-
-
 class MatchingConfig(BaseModel):
     tiers: dict[str, TierConfig]
     pending: dict[str, int]
     # 投递线：低于此分数的岗位进「低于投递线」折叠区（不自动生成招呼语、不占发送额度）
     min_apply_score: int = 40
-    vector_prefilter: VectorPrefilterConfig = VectorPrefilterConfig()
 
 
 class FakeJobDetectionConfig(BaseModel):
@@ -73,7 +66,6 @@ class SafetyConfig(BaseModel):
     daily_send_cap: int = 25
     # 允许发送的时间窗口，如 "09:00-20:00"；留空表示不限制
     active_hours: str = ""
-    captcha_handling: str = "pause_notify"
     headless: bool = False
 
 
@@ -229,7 +221,6 @@ def get_config() -> AppConfig:
                 tiers=tiers,
                 pending=pending,
                 min_apply_score=matching_raw.get("min_apply_score", 40),
-                vector_prefilter=VectorPrefilterConfig(**matching_raw.get("vector_prefilter", {})),
             ),
             fake_job_detection=FakeJobDetectionConfig(**raw.get("fake_job_detection", {})),
             personal_info=PersonalInfoConfig(**raw_personal),

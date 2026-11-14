@@ -1,16 +1,14 @@
 """
-动态搜索词生成器 — 直调 DeepSeek API（httpx.AsyncClient）。
+动态搜索词生成器 — 直调 DeepSeek API（共享客户端 backend/llm.py）。
 """
 
 import json
 import re
 import logging
-import httpx
 from .config_loader import get_api_key, get_llm_base_url
+from .llm import get_client
 
 _log = logging.getLogger("search_gen")
-
-_shared_client = None
 
 SEARCH_KEYWORD_PROMPT = """你是一位职业规划分析师。请分析以下简历，为求职者生成最优的职位搜索关键词组合。
 
@@ -67,12 +65,7 @@ async def generate(resume_text: str) -> list[dict]:
     }
 
     try:
-        global _shared_client
-        if _shared_client is None:
-            _shared_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(15.0, connect=5.0),
-                limits=httpx.Limits(max_connections=50, max_keepalive_connections=10))
-        r = await _shared_client.post(url, json=body, headers=headers)
+        r = await get_client().post(url, json=body, headers=headers)
         r.raise_for_status()
         content = r.json()["choices"][0]["message"]["content"] or ""
         return _parse_response(content)

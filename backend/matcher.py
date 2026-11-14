@@ -8,10 +8,9 @@ import asyncio
 import logging
 import httpx
 from .config_loader import get_api_key, get_llm_base_url
+from .llm import get_client
 
 _log = logging.getLogger("matcher")
-
-_shared_client = None
 
 MATCH_PROMPT_TEMPLATE = """你是一位严苛但公道的招聘匹配评估师。对比简历与职位描述，输出 0-100 匹配分。
 
@@ -29,9 +28,12 @@ MATCH_PROMPT_TEMPLATE = """你是一位严苛但公道的招聘匹配评估师�
   不确定的不要凭空扣分，禁止因候选人非科班背景而统一压分
 - 跨行业成功迁移证据（如独立交付过完整项目）最多 +5
 
-## 虚假招聘识别
-JD含培训/转行/包就业等培训机构特征 → 标记虚假
-公司名含教育/培训/实训等关键词 → 标记虚假
+## 虚假招聘识别（命中任一 → is_fake_job=true，这直接保护求职者）
+- 培训机构特征：先培训后上岗、包就业、零基础转行包学会、招学员而非招员工
+- 收费特征：入职前任何形式收费、押金、办卡、工装费/教材费、培训贷
+- 兼职套壳：刷单、点赞关注任务、日结兼职伪装成技术岗
+- 拉人头特征：保险经纪/直销/推广员实为招募下线
+- 公司名含教育/培训/实训/职业技能等机构特征 → 标记虚假
 
 ## 输出要求
 只返回一个 JSON 对象：
@@ -45,12 +47,7 @@ JD含培训/转行/包就业等培训机构特征 → 标记虚假
 
 
 async def _call_ds(prompt: str, timeout=8.0) -> dict:
-    """直调 DeepSeek API，共享客户端避免连接池泄漏。"""
-    global _shared_client
-    if _shared_client is None:
-        _shared_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout, connect=5.0),
-            limits=httpx.Limits(max_connections=50, max_keepalive_connections=10))
+    """直调 DeepSeek API，共享客户端（backend/llm.py）。"""
     url = f"{get_llm_base_url('deepseek')}/chat/completions"
     headers = {
         "Authorization": f"Bearer {get_api_key('deepseek')}",
@@ -65,7 +62,7 @@ async def _call_ds(prompt: str, timeout=8.0) -> dict:
         "temperature": 0.1,
         "max_tokens": 512,
     }
-    r = await _shared_client.post(url, json=body, headers=headers)
+    r = await get_client().post(url, json=body, headers=headers, timeout=timeout)
     r.raise_for_status()
     content = r.json()["choices"][0]["message"]["content"] or ""
     return _parse_response(content)

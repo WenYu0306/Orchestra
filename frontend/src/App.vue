@@ -208,7 +208,8 @@ async function handleSend() {
       const byCompany = new Map((d.results || []).map(x => [x.company, x]))
       toSend.forEach(j => {
         const res = byCompany.get(j.company)
-        j._sent = !!(res && res.ok)
+        if (res && res.ok) { j._sent = true; j._sendFailed = false }
+        else { j._sent = false; j._sendFailed = true }
         j._selected = false
       })
       const ok = d.sent || 0

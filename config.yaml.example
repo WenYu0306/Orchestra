@@ -30,11 +30,7 @@ matching:
   # 低于此分数的岗位只进待审区：不自动生成招呼语、不占用发送额度，卡片上可自行编辑招呼语后手动选发
   min_apply_score: 60
 
-  # TF-IDF 向量粗筛。min_score 建议保持 0（粗筛在每词 30 条的规模下没有省钱价值，
-  # 反而会把措辞不同的好岗位在 DeepSeek 评分之前丢掉）
-  vector_prefilter:
-    enabled: true
-    min_score: 0
+  # TF-IDF 向量粗筛已删除（2026-11-14）：搜索页每词每城上限 30 条，粗筛纯空转
 
   # 展示分层阈值（80+ 优先投递 / 60+ 值得投）。
   # 旧版 criteria 权重与每层 count 上限是死配置，已删——匹配判断由 DeepSeek 提示词承担
@@ -88,10 +84,9 @@ safety:
   send_delay_min: 45
   send_delay_max: 120
   # 每日发送上限（跨运行累计，按当天 status=sent 记录数计）
-  daily_send_cap: 25
+  daily_send_cap: 50
   # 只允许在该时间窗口内发送，如 "09:00-20:00"；留空不限制
   active_hours: ""
-  captcha_handling: "pause_notify"
   headless: false
 
 # ============ Web 界面 ============
