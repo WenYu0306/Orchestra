@@ -53,9 +53,13 @@ onMounted(async () => {
     keyConfigured.value = !!r.key_configured
     resumeUploaded.value = !!r.resume_uploaded
     allCities.value = r.supported_cities || []
-    for (const c of (r.cities || [])) selected.value.add(c.name)
-    const mins = (r.cities || []).map(c => c.min_salary).filter(Boolean)
-    if (mins.length) minSalary.value = Math.max(1, Math.round(Math.min(...mins) / 1000))
+    // 仅完成过向导的用户回填已有城市——全新买家不预选（决策：城市步不默认勾选，
+    // config.yaml 的 example 默认城市不该悄悄替买家做主）
+    if (r.wizard_done) {
+      for (const c of (r.cities || [])) selected.value.add(c.name)
+      const mins = (r.cities || []).map(c => c.min_salary).filter(Boolean)
+      if (mins.length) minSalary.value = Math.max(1, Math.round(Math.min(...mins) / 1000))
+    }
   } catch (e) { /* 后端不可达：各步操作会给出明确报错 */ }
 })
 
@@ -345,7 +349,7 @@ onUnmounted(closeSse)
                 {{ loginState === 'starting' ? '请稍候…' : '打开浏览器，扫码登录' }}
               </button>
               <p v-if="loginMsg" class="login-msg" :class="{ fail: loginState === 'fail' }">{{ loginMsg }}</p>
-              <a v-if="loginState === 'fail'" class="skip-link" @click="finish(false)">跳过，稍后运行时再登录</a>
+              <a class="skip-link" @click="finish(false)">跳过，先不登录（运行时再扫码）</a>
             </template>
             <template v-else>
               <div class="done-emoji">🎉</div>
