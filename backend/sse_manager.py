@@ -20,7 +20,6 @@ class SSEEventType(str, Enum):
     STATUS = "status"
     RECORD = "record"
     PENDING = "pending"
-    CAPTCHA = "captcha"
     COMPLETE = "complete"
     ERROR = "error"
 
@@ -28,7 +27,6 @@ class SSEEventType(str, Enum):
 class AppStatus(str, Enum):
     IDLE = "idle"
     RUNNING = "running"
-    NEED_CAPTCHA = "need_captcha"
     COMPLETED = "completed"
     ERROR = "error"
 
@@ -128,10 +126,6 @@ class SSEManager:
 
     async def emit_pending(self, pending_list: list[dict[str, Any]]) -> None:
         await self.emit(SSEEventType.PENDING, {"items": pending_list})
-
-    async def emit_captcha(self, message: str = "检测到验证码，请手动处理") -> None:
-        await self.emit_status(AppStatus.NEED_CAPTCHA, {"message": message})
-        await self.emit(SSEEventType.CAPTCHA, {"message": message})
 
     async def emit_complete(self, summary: dict[str, Any]) -> None:
         await self.emit_status(AppStatus.COMPLETED, summary)

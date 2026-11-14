@@ -1,16 +1,14 @@
 """
-招呼语生成器 — 直调 DeepSeek API（httpx.AsyncClient）。
+招呼语生成器 — 直调 DeepSeek API（共享客户端 backend/llm.py）。
 """
 
 import json
 import re
 import logging
-import httpx
 from .config_loader import get_api_key, get_llm_base_url
+from .llm import get_client
 
 _log = logging.getLogger("greeting")
-
-_shared_client = None
 
 GREETING_PROMPT = """你是求职者本人。下面是你的技能档案，选一条跟岗位最相关的，以第一人称（"我做过X"或"我的X项目"）接上一个点。不客气不构思。
 
@@ -39,12 +37,7 @@ async def generate(jd_text: str, profiles: str = "") -> str:
         "max_tokens": 256,
     }
     try:
-        global _shared_client
-        if _shared_client is None:
-            _shared_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(15.0, connect=5.0),
-                limits=httpx.Limits(max_connections=50, max_keepalive_connections=10))
-        r = await _shared_client.post(url, json=body, headers=headers)
+        r = await get_client().post(url, json=body, headers=headers)
         r.raise_for_status()
         raw = r.json()["choices"][0]["message"]["content"] or ""
         raw = re.sub(r"```(?:json)?\s*", "", raw)

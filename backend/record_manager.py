@@ -20,9 +20,6 @@ from .config_loader import get_config, get_project_root
 
 _log = logging.getLogger("record_manager")
 
-# 发送失败的公司不参与去重（下次运行可重试）
-_NON_BLOCKING_STATUS = {"send_failed"}
-
 
 class RecordManager:
     """
@@ -30,6 +27,10 @@ class RecordManager:
 
     - applied_jobs.json: 投递记录（跨会话保留，去重数据源）
     - pending_jobs.json: 待选区职位列表（最多 max_count 个）
+
+    去重语义（2026-11-14 由公司级改为职位级，对齐竞品）：
+    只有 status=sent 的 (公司, 职位ID) 组合才拉黑——同公司不同职位可分别投递；
+    dry_run（评过没发）/ send_failed 不拉黑，岗位次日重现。
     """
 
     def __init__(self):
@@ -42,7 +43,7 @@ class RecordManager:
 
         self._applied: list[dict[str, Any]] = []
         self._pending: list[dict[str, Any]] = []
-        self._applied_companies: set[str] = set()
+        self._sent_jobs: set[tuple[str, str]] = set()
         self._lock = Lock()
         self._session_start = 0
         self._tier_counts: dict[str, int] = {"high": 0, "medium": 0, "try": 0}
@@ -51,7 +52,7 @@ class RecordManager:
         self._pending_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._load()
-        self._rebuild_companies()
+        self._rebuild_sent_jobs()
         # 启动后当前会话视图为空
         self._session_start = len(self._applied)
 
@@ -95,36 +96,19 @@ class RecordManager:
             json.dump(self._pending, f, ensure_ascii=False, indent=2)
         os.replace(tmp_path, self._pending_path)
 
-    def _rebuild_companies(self) -> None:
-        """从全部历史记录重建去重集合（send_failed 的公司不拉黑）"""
-        self._applied_companies = {
-            r.get("company", "")
+    def _rebuild_sent_jobs(self) -> None:
+        """从全部历史记录重建已投职位集合（仅 sent 状态）"""
+        self._sent_jobs = {
+            (r.get("company", ""), r.get("encrypt_job_id", ""))
             for r in self._applied
-            if r.get("company") and r.get("status") not in _NON_BLOCKING_STATUS
+            if r.get("status") == "sent"
         }
-
-    @staticmethod
-    def _parse_ts(ts: str) -> float | None:
-        try:
-            return time.mktime(time.strptime(ts, "%Y-%m-%d %H:%M:%S"))
-        except (ValueError, TypeError):
-            return None
 
     # ---- 去重查询 ----
 
-    def is_company_recent(self, company: str, days: int = 30) -> bool:
-        """检查公司最近 N 天是否已投递/招呼过（基于全部历史记录）"""
-        cutoff = time.time() - days * 86400
-        for record in reversed(self._applied):
-            if record.get("company") != company:
-                continue
-            if record.get("status") in _NON_BLOCKING_STATUS:
-                continue
-            ts = self._parse_ts(record.get("timestamp", ""))
-            # 时间戳缺失按"最近"处理（宁可错拦不可重发）
-            if ts is None or ts >= cutoff:
-                return True
-        return False
+    def is_job_recent(self, company: str, encrypt_job_id: str) -> bool:
+        """检查 (公司, 职位) 是否已真实发送过。永不过期——发过的岗位就是发过了。"""
+        return (company, encrypt_job_id) in self._sent_jobs
 
     # ---- 投递记录 CRUD ----
 
@@ -168,8 +152,6 @@ class RecordManager:
         with self._lock:
             self._applied.append(record)
             self._tier_counts[tier] = self._tier_counts.get(tier, 0) + 1
-            if status not in _NON_BLOCKING_STATUS:
-                self._applied_companies.add(company)
             self._save_applied()
 
         return record
@@ -177,7 +159,7 @@ class RecordManager:
     def mark_sent(self, company: str, encrypt_job_id: str, status: str) -> bool:
         """按 公司+encryptJobId 把 dry_run 记录更新为 sent / send_failed。
 
-        发送失败的公司同时移出去重集合，下次运行可重试；成功则确保进入集合。
+        sent → 职位进入去重集合；send_failed → 不拉黑，下次运行可重试。
         """
         with self._lock:
             target = None
@@ -193,10 +175,11 @@ class RecordManager:
                 return False
             target["status"] = status
             target["sent_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            if status in _NON_BLOCKING_STATUS:
-                self._applied_companies.discard(company)
+            key = (company, encrypt_job_id)
+            if status == "sent":
+                self._sent_jobs.add(key)
             else:
-                self._applied_companies.add(company)
+                self._sent_jobs.discard(key)
             self._save_applied()
             return True
 
@@ -261,7 +244,7 @@ class RecordManager:
         """开始新的一次运行：从磁盘重载历史（去重源），会话视图清零。不删除历史。"""
         with self._lock:
             self._load()
-            self._rebuild_companies()
+            self._rebuild_sent_jobs()
             self._session_start = len(self._applied)
             self._tier_counts = {"high": 0, "medium": 0, "try": 0}
 

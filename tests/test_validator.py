@@ -10,6 +10,11 @@ def test_check_city_match():
     ok, warn = check_city({"cityName": "北京·朝阳区"}, "北京")
     assert ok and not warn
 
+def test_check_city_nationwide():
+    # 「全国」搜索范围跳过城市校验（搜索 API city=100010000，2026-11-14 实测）
+    ok, warn = check_city({"cityName": "广州"}, "全国")
+    assert ok and not warn
+
 def test_check_city_mismatch():
     # 城市不符 = 硬拒绝（无人值守宁漏勿错）
     ok, warn = check_city({"cityName": "南京"}, "长春")

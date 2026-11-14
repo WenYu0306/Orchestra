@@ -242,7 +242,7 @@ onUnmounted(closeSse)
               <div class="risk-title">开始前请了解</div>
               <ul class="risk-list">
                 <li>本工具通过浏览器自动化操作<b>你本人登录</b>的 BOSS 直聘账号。平台用户协议通常限制自动化操作，<b>存在账号被限流/限制的可能</b>，请知悉并控制使用频率。</li>
-                <li>工具默认按真人节奏运行（发送间隔 45~120 秒、每日上限 25 条、异常自动停止）。<b>请勿调低这些参数。</b></li>
+                <li>工具默认按真人节奏运行（发送间隔 45~120 秒、每日上限 50 条、异常自动停止）。<b>请勿调低这些参数。</b></li>
                 <li>所有数据（简历、投递记录、登录态）只保存在你的电脑上，本工具不上传任何数据。</li>
               </ul>
               <label class="agree-row">
@@ -313,6 +313,13 @@ onUnmounted(closeSse)
               <span class="salary-unit">K（低于此值的岗位自动过滤）</span>
             </div>
             <input class="text-input city-search" v-model="citySearch" placeholder="搜索城市…" />
+            <div class="city-group">
+              <div class="group-label">搜索范围</div>
+              <div class="chips">
+                <button class="chip nation-chip" :class="{ active: selected.has('全国') }"
+                        @click="toggleCity('全国')">全国 · 一次搜遍所有城市（推荐）</button>
+              </div>
+            </div>
             <div class="city-group" v-if="popularCities.length">
               <div class="group-label">热门城市</div>
               <div class="chips">
@@ -344,6 +351,7 @@ onUnmounted(closeSse)
               <div class="done-emoji">🎉</div>
               <h2 class="pane-title">一切就绪！</h2>
               <p class="pane-sub">简历、Key、城市都已配置。点「开始」，AI 会自动搜索今天的岗位并打分，完成后你逐条确认发送。</p>
+              <p class="pane-sub migrate-hint">以后更新版本时：把旧目录的 <b>data 文件夹</b>和 <b>.env 文件</b>拷进新目录，配置、登录态、投递记录全部保留。</p>
               <button class="start-run-btn" @click="finish(true)">开始第一次运行</button>
               <a class="skip-link" @click="finish(false)">先不运行，看看界面</a>
             </template>
@@ -500,6 +508,13 @@ onUnmounted(closeSse)
   transition: all .15s;
 }
 .chip.active { background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }
+.nation-chip {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.08);
+  color: #4f46e5;
+  font-weight: 600;
+}
+.nation-chip.active { background: #6366f1; color: #fff; }
 
 /* 步骤 5 */
 .login-btn, .start-run-btn {

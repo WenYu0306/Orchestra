@@ -48,6 +48,8 @@ function copyGreeting(text) {
           <span class="tier-tag" :style="{ background: tierSoft(job.tier), borderColor: tierBorder(job.tier), color: tierColor(job.tier) }">
             {{ tierLabel(job.tier) }}
           </span>
+          <span v-if="job._sent" class="send-badge sent">✓ 已发送</span>
+          <span v-else-if="job._sendFailed" class="send-badge failed">发送失败 · 可勾选重试</span>
         </div>
         <div class="job-title">{{ job.title }}</div>
         <div class="meta">
@@ -133,6 +135,24 @@ function copyGreeting(text) {
   font-size: 14px; font-weight: 600;
 }
 .company { font-size: 15px; font-weight: 600; color: var(--text-1); }
+.send-badge {
+  padding: 2px 9px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.send-badge.sent {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.35);
+}
+.send-badge.failed {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.3);
+}
+
 .tier-tag {
   padding: 3px 8px;
   border-radius: 6px;

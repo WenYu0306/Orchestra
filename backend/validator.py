@@ -6,7 +6,12 @@ import re
 
 
 def check_city(job: dict, expected_city: str) -> tuple[bool, str]:
-    """校验城市是否匹配预期。城市缺失视为不通过（无人值守时宁漏勿错）。"""
+    """校验城市是否匹配预期。城市缺失视为不通过（无人值守时宁漏勿错）。
+
+    expected_city 为「全国」时跳过城市校验（搜索 API city=100010000 返回全国岗位）。
+    """
+    if expected_city == "全国":
+        return True, ""
     actual = job.get("cityName", "")
     if not actual:
         return False, "城市信息缺失"

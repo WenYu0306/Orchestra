@@ -5,9 +5,8 @@ Agent — 单阶段: 搜→标签评分→全局排序→top 20 详情重评→�
 import asyncio, json, logging, os, random, re, sys, time
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-import httpx, nodriver as uc
+import nodriver as uc
 
-_agent_shared_client = None
 from .config_loader import get_config, get_api_key, get_llm_base_url, get_project_root
 from .city_codes import CITY_CODE as BOSS_CODE
 from .greeting_generator import generate as gen_greeting
@@ -15,10 +14,9 @@ from .matcher import match as ds_match
 from .record_manager import record_manager
 from .sse_manager import sse_manager, AppStatus
 from .validator import check_city, check_salary, check_company
-from .vectordb import job_vector_store
 from dataclasses import dataclass, field
 
-# BOSS 直聘城市代码映射见 backend/city_codes.py（73 城，直验+规则推导，扩展方法见该文件）
+# BOSS 直聘城市代码映射见 backend/city_codes.py（73 城 + 全国，扩展方法见该文件）
 
 # 沟通按钮的六种文本变体
 _GREET_BTNS = ["立即沟通","发起沟通","沟通一下","聊一聊","联系Ta","开始沟通"]
@@ -59,7 +57,6 @@ _fh.setFormatter(_fmt); _log.addHandler(_fh)
 class AgentRunner:
     def __init__(self):
         self._task = None; self._stop = False; self._browser = None; self._tab = None
-        self._pe = asyncio.Event(); self._pe.set()
         self._resume = ""
         self._tc = {"high":0,"medium":0,"try":0}
         self._sending = False
@@ -71,8 +68,6 @@ class AgentRunner:
     @property
     def is_running(self): return self._task is not None and not self._task.done()
     @property
-    def is_paused(self): return not self._pe.is_set()
-    @property
     def is_sending(self): return self._sending
 
     async def start(self):
@@ -82,7 +77,7 @@ class AgentRunner:
             try: self._browser.stop()
             except Exception: _log.warning("browser.stop() failed on restart", exc_info=True)
             self._browser = None; self._tab = None
-        self._stop = False; self._pe.set(); self._tc = {"high":0,"medium":0,"try":0}
+        self._stop = False; self._tc = {"high":0,"medium":0,"try":0}
         self._llm_fail_streak = 0; self._llm_fail_reason = "DeepSeek 连续评分失败"; self._search_fail_streak = 0; self._decide_fallbacks = 0
         self._stats = {"salary_skipped":0,"city_mismatch":0,"company_rejected":0,"excluded":0,
                        "fake":0,"low_conf":0,"llm_failed":0,"dup_skipped":0}
@@ -90,7 +85,7 @@ class AgentRunner:
         self._task = asyncio.create_task(self._run())
 
     async def stop(self):
-        self._stop = True; self._pe.set()
+        self._stop = True
         # 取消搜索/评分任务（发送循环通过 _stop 自行中断）
         if self._task and not self._task.done():
             self._task.cancel()
@@ -157,11 +152,6 @@ class AgentRunner:
         except ValueError:
             _log.warning(f"active_hours 配置格式错误: {win!r}，应为 HH:MM-HH:MM")
         return True, ""
-
-    async def resume_after_captcha(self):
-        self._pe.set()
-        try: await sse_manager.emit_status(AppStatus.RUNNING, {"message":"继续"})
-        except Exception: _log.debug("emit_status failed on resume")
 
     async def _run(self):
         ok = False
@@ -280,17 +270,14 @@ class AgentRunner:
         prompt = f"把你这份简历拆成 3 个不同方向的技能描写，每段 30-50 字，每段加编号 1. 2. 3.，方便每次只用一个方向去接岗位的点。\n\n简历：\n{resume[:3000]}"
         try:
             from .config_loader import get_api_key, get_llm_base_url
-            global _agent_shared_client
-            if _agent_shared_client is None:
-                _agent_shared_client = httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5),
-                    limits=httpx.Limits(max_connections=20, max_keepalive_connections=5))
+            from .llm import get_client
             url = f"{get_llm_base_url('deepseek')}/chat/completions"
             headers = {"Authorization": f"Bearer {get_api_key('deepseek')}", "Content-Type": "application/json"}
             body = {"model": "deepseek-chat", "messages": [
                 {"role": "system", "content": "你是一个专业的简历分析器。"},
                 {"role": "user", "content": prompt}],
                 "temperature": 0.3, "max_tokens": 300}
-            r = await _agent_shared_client.post(url, json=body, headers=headers)
+            r = await get_client().post(url, json=body, headers=headers, timeout=10)
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"] or "AI全栈开发，有Agent编排和RAG经验"
         except Exception as e:
@@ -403,8 +390,7 @@ class AgentRunner:
     async def _search_one(self, kw: str, city_name: str, city_code: str, min_sal: int) -> list:
         """Agent 原子工具——单个关键词 × 单个城市搜索+过滤+评分。
 
-        管线：城市/公司/薪资硬校验 + 排除词 → 已投公司去重（省 LLM 调用）→
-        向量粗筛（可选，config matching.vector_prefilter）→ DeepSeek 精排。
+        管线：城市/公司/薪资硬校验 + 排除词 → 已投去重（省 LLM 调用）→ DeepSeek 精排。
         """
         if self._stop:
             return []
@@ -458,7 +444,7 @@ class AgentRunner:
         # 第二道过滤：已投/已招呼公司去重（在花 LLM 调用之前）
         deduped = []
         for j, jd in candidates:
-            if record_manager.is_company_recent(j.get("brandName", "")):
+            if record_manager.is_job_recent(j.get("brandName", ""), j.get("encryptJobId", "")):
                 self._stats["dup_skipped"] += 1
             else:
                 deduped.append((j, jd))
@@ -466,30 +452,12 @@ class AgentRunner:
         if not candidates:
             return []
 
-        # 第三道过滤：向量相似度粗筛（min_score=0 时仅排序不过滤）
-        N_LLM = min(30, len(candidates))
-        jd_texts = [jd for _, jd in candidates]
-        pre = cfg.matching.vector_prefilter
-        top_indices = set(range(len(candidates)))
-        if pre.enabled:
-            try:
-                job_vector_store.index(self._resume, jd_texts)
-                ranked = job_vector_store.search(self._resume, top_k=N_LLM, min_score=pre.min_score)
-                if not ranked:
-                    # 全部低于阈值时不能让整批岗位静默消失
-                    _log.warning(f"[粗筛] {kw}/{city_name} 全部{len(candidates)}条低于阈值{pre.min_score}，回退全量送LLM")
-                    ranked = [(i, 0.0) for i in range(len(candidates))]
-                top_indices = {i for i, _s in ranked}
-            except Exception as e:
-                _log.warning(f"向量检索失败，回退全量 LLM 评分: {e}")
-
-        # 第四道：LLM 精排
+        # LLM 精排（搜索页每词每城最多 30 条，候选天然有上限，无需额外粗筛——
+        # 原 TF-IDF 向量粗筛在 min_score=0/top_k=30 配置下为纯空转，2026-11-14 删除）
         scored = []
-        for i, (j, jd) in enumerate(candidates):
+        for j, jd in candidates:
             if self._stop:
                 break
-            if i not in top_indices:
-                continue
             co = j.get("brandName", "")
             po = j.get("jobName", "")
             await sse_manager.emit_status(AppStatus.RUNNING, {"message": f"评估:{co}"})
@@ -574,7 +542,7 @@ class AgentRunner:
         for x in ordered:
             if self._stop or applied >= MAX_OUTPUT:
                 break
-            if record_manager.is_company_recent(x.company):
+            if record_manager.is_job_recent(x.company, x.encrypt_job_id):
                 continue
             tier = self._assign_tier(x.score, cfg)
             if x.score < min_apply:
@@ -667,19 +635,14 @@ class AgentRunner:
 
         try:
             from .config_loader import get_api_key, get_llm_base_url
-            import httpx
+            from .llm import get_client
             url = f"{get_llm_base_url('deepseek')}/chat/completions"
             headers = {"Authorization": f"Bearer {get_api_key('deepseek')}", "Content-Type": "application/json"}
             body = {"model": "deepseek-chat", "messages": [
                 {"role": "system", "content": "你是Agent决策器。只输出JSON。"},
                 {"role": "user", "content": prompt}],
                 "temperature": 0.2, "max_tokens": 150}
-            global _agent_shared_client
-            if _agent_shared_client is None:
-                _agent_shared_client = httpx.AsyncClient(
-                    timeout=httpx.Timeout(8, connect=5),
-                    limits=httpx.Limits(max_connections=20, max_keepalive_connections=5))
-            r = await _agent_shared_client.post(url, json=body, headers=headers)
+            r = await get_client().post(url, json=body, headers=headers, timeout=8)
             r.raise_for_status()
             content = r.json()["choices"][0]["message"]["content"] or ""
             m = re.search(r'\{[\s\S]*\}', content)
@@ -694,7 +657,10 @@ class AgentRunner:
             # 持久化决策日志
             try:
                 dl = _log_dir / "agent_decisions.jsonl"
-                with open(dl, "a") as f:
+                # 超 1MB 归档为 .old（保留一代）——append-only 文件没有轮转会永续增长
+                if dl.exists() and dl.stat().st_size > 1_000_000:
+                    dl.replace(dl.with_suffix(".jsonl.old"))
+                with open(dl, "a", encoding="utf-8") as f:
                     decision["pool_size"] = len(all_scored)
                     decision["high80"] = high80; decision["high70"] = high70
                     f.write(json.dumps(decision, ensure_ascii=False) + "\n")
