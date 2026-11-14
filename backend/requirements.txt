@@ -7,6 +7,9 @@
 # Web framework
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
+# FastAPI UploadFile 的动态探测依赖——PyInstaller 静态分析不收录、CI 装环境漏装
+# 会启动即崩（v1.4.0 Windows/macOS CI 包实测），必须显式声明
+python-multipart>=0.0.9
 
 # SSE support
 sse-starlette>=1.8.0

@@ -50,7 +50,8 @@ _ch = logging.StreamHandler(sys.stdout); _ch.setFormatter(_fmt); _log.addHandler
 # file handler — daily rotating, keep 7 days
 _log_dir = get_project_root() / "data" / "logs"
 _log_dir.mkdir(parents=True, exist_ok=True)
-_fh = TimedRotatingFileHandler(str(_log_dir / "agent.log"), when="midnight", backupCount=7)
+_fh = TimedRotatingFileHandler(str(_log_dir / "agent.log"), when="midnight", backupCount=7,
+                               encoding="utf-8")  # GBK 机器上缺这个会写不进 ✓/⚠（售后排障依赖日志）
 _fh.suffix = "%Y-%m-%d"
 _fh.setFormatter(_fmt); _log.addHandler(_fh)
 

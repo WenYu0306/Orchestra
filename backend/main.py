@@ -6,10 +6,19 @@ Orchestra Backend —— FastAPI 入口。
 """
 
 import os
+import sys
 import webbrowser
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional
+
+# Windows 中文区域（GBK）下 stdout 为管道/重定向时，print 的 ✓/⚠ 会
+# UnicodeEncodeError 崩溃（v1.4.0 Windows 真机实测）；统一 UTF-8，
+# 真实控制台路径（启动.bat 走 WinConsoleIO）不受影响
+if sys.stdout:
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr:
+    sys.stderr.reconfigure(encoding="utf-8")
 
 import yaml
 from fastapi import FastAPI, HTTPException, UploadFile, File

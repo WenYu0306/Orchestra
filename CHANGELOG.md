@@ -2,6 +2,18 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。
 
+## [1.4.1] - 2026-11-14
+
+Windows 真机冒烟测试（中文区域 GBK + 未装 Chrome + 全新环境）发现的两个启动崩溃修复。
+
+### 修复（关键，均 Windows 真机实测发现）
+- **CI 打包缺 python-multipart → 双击启动即崩**：FastAPI 的 `UploadFile` 路由在模块导入阶段就探测 multipart 运行时，而它是动态探测型依赖——CI 构建机只装 requirements.txt（漏了它）→ PyInstaller 无从打包 → 冻结包启动即 `RuntimeError: Form data requires "python-multipart"`，无任何 UI 反馈。requirements.txt 显式声明修复（本地 venv 恰好有它，故 Mac 本地包未暴露）
+- **GBK 区域 + 管道/重定向 stdout → UnicodeEncodeError 崩溃**：启动日志的 ✓/⚠ 在 GBK 编码下无法输出。main.py 入口统一 `sys.stdout/stderr.reconfigure(encoding="utf-8")`（真实控制台路径走 WinConsoleIO 本就 UTF-8，不受影响）
+- **agent.log FileHandler 显式 utf-8**：GBK 机器上日志写入 ✓/⚠ 同样会出问题，而售后排障依赖日志
+
+### 附：冒烟通过项
+- WebView2 原生窗口、五步向导全新环境进入、文件对话框、关窗即退净（~5s 全进程退出）——Windows 形态核心链路正常
+
 ## [1.4.0] - 2026-11-14
 
 桌面应用形态：pywebview 原生窗口 + 首跑向导 + 发送链路根治 + 分层语义重构。
