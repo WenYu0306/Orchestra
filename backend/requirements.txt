@@ -26,3 +26,6 @@ nodriver>=0.50
 
 # Data validation
 pydantic>=2.5.0
+
+# Desktop shell — pywebview 原生窗口（mac: WKWebView / win: WebView2）
+pywebview>=6.0,<7

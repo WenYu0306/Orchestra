@@ -7,6 +7,7 @@ credentials.json
 # ============ 运行时数据 ============
 data/applied_jobs.json
 data/pending_jobs.json
+data/user_settings.yaml
 data/logs/
 data/logs/checkpoint.json
 data/logs/agent_decisions.jsonl
@@ -47,7 +48,17 @@ resume*.txt
 # ============ 本地笔记/调试工具（不公开） ============
 notes/
 tools/
+# 商业化内参（定价策略/运营口径）——公开仓库不外发，仅存本地
+docs/商业化方案.md
 
 # ============ Playwright ============
 playwright-report/
 test-results/
+
+# Agent Chrome 用户数据目录（登录态缓存）
+data/chrome-profile/
+
+# 发布打包产物
+dist-release/
+.pyi-out/
+.pyi-work/

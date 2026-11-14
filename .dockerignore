@@ -16,3 +16,6 @@ tools
 *.md
 *.mermaid
 *.html
+my_resume.pdf
+*.pdf
+data/chrome-profile

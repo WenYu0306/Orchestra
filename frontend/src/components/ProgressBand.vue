@@ -6,7 +6,6 @@ const props = defineProps({
   step: { type: String, default: '等待启动' },
   stepMeta: { type: String, default: '' },
   elapsed: { type: String, default: '00:00' },
-  remaining: { type: String, default: '00:00' },
 })
 
 const fillWidth = computed(() => `${props.progress}%`)
@@ -19,7 +18,6 @@ const fillWidth = computed(() => `${props.progress}%`)
         <span class="lbl">已运行</span>
         <span class="val">{{ elapsed }}</span>
       </div>
-      <div class="remain">预计剩余 {{ remaining }} · 共约 12:00</div>
     </div>
 
     <div class="track">

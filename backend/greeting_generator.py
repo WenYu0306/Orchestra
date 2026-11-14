@@ -4,8 +4,11 @@
 
 import json
 import re
+import logging
 import httpx
 from .config_loader import get_api_key, get_llm_base_url
+
+_log = logging.getLogger("greeting")
 
 _shared_client = None
 
@@ -39,7 +42,7 @@ async def generate(jd_text: str, profiles: str = "") -> str:
         global _shared_client
         if _shared_client is None:
             _shared_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(10.0, connect=5.0),
+                timeout=httpx.Timeout(15.0, connect=5.0),
                 limits=httpx.Limits(max_connections=50, max_keepalive_connections=10))
         r = await _shared_client.post(url, json=body, headers=headers)
         r.raise_for_status()
@@ -47,5 +50,7 @@ async def generate(jd_text: str, profiles: str = "") -> str:
         raw = re.sub(r"```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```", "", raw)
         return json.loads(raw.strip()).get("greeting", "您好，我对这个职位很感兴趣。")
-    except Exception:
+    except Exception as e:
+        # 降级为通用招呼语——发给了真实招聘方，必须留痕让操作者知道
+        _log.warning("招呼语生成失败，降级为通用文案: %s | JD前60字: %s", e, jd_text[:60])
         return "您好，我对这个职位很感兴趣，希望能进一步了解。"

@@ -5,7 +5,7 @@ const props = defineProps({ job: Object })
 const TIER_META = {
   high: { label: '高匹配' },
   medium: { label: '中匹配' },
-  try: { label: '可尝试' },
+  try: { label: '低于投递线' },
 }
 
 function tierColor(t) {
@@ -17,12 +17,20 @@ function tierSoft(t) {
 function tierBorder(t) {
   return { high: 'var(--indigo-border)', medium: 'var(--blue-border)', try: 'var(--amber-border)' }[t] || 'var(--indigo-border)'
 }
+function tierLabel(t) {
+  return TIER_META[t]?.label || t
+}
 
 const copied = ref(false)
+const copyFailed = ref(false)
 function copyGreeting(text) {
-  navigator.clipboard?.writeText(text)
-  copied.value = true
-  setTimeout(() => { copied.value = false }, 1500)
+  navigator.clipboard?.writeText(text).then(() => {
+    copied.value = true; copyFailed.value = false
+    setTimeout(() => { copied.value = false }, 1500)
+  }).catch(() => {
+    copyFailed.value = true
+    setTimeout(() => { copyFailed.value = false }, 1500)
+  })
 }
 </script>
 
@@ -38,14 +46,13 @@ function copyGreeting(text) {
           </div>
           <span class="company">{{ job.company }}</span>
           <span class="tier-tag" :style="{ background: tierSoft(job.tier), borderColor: tierBorder(job.tier), color: tierColor(job.tier) }">
-            {{ TIER_META[job.tier].label }}
+            {{ tierLabel(job.tier) }}
           </span>
         </div>
         <div class="job-title">{{ job.title }}</div>
         <div class="meta">
           <span class="salary-pill" v-if="job.salary">
-            <span class="salary-num">{{ (job.salary||'').split('-')[0].replace(/[^\d]/g,'') }}</span>
-            <span class="salary-unit">K</span>
+            <span class="salary-text">{{ job.salary }}</span>
           </span>
           <span class="city-tag" v-if="job.location">
             <svg class="pin" viewBox="0 0 11 11" width="11" height="11"><circle cx="5.5" cy="4" r="2" fill="none" stroke="currentColor" stroke-width="1"/><path d="M5.5 1C3 1 1.5 3 1.5 5.5c0 3 4 6 4 6s4-3 4-6C9.5 3 8 1 5.5 1z" fill="none" stroke="currentColor" stroke-width="1"/></svg>
@@ -62,16 +69,22 @@ function copyGreeting(text) {
     <!-- 招呼语面板 -->
     <div class="greeting">
       <div class="greeting-head">
-        <span class="greeting-lbl">招呼语预览</span>
-        <button class="copy-btn" @click="copyGreeting(job.greeting)">
+        <span class="greeting-lbl">招呼语（发送前可编辑）</span>
+        <span v-if="job.greetingIsDefault" class="default-badge">默认文案 · 建议修改</span>
+        <button class="copy-btn" aria-label="复制招呼语" @click="copyGreeting(job.greeting)">
           <svg viewBox="0 0 11 11" width="11" height="11">
             <rect x="3.5" y="3.5" width="5.2" height="5.2" rx="1" fill="none" stroke="currentColor" stroke-width="1" />
             <rect x="1.5" y="1.5" width="5.6" height="5.6" rx="1" fill="none" stroke="currentColor" stroke-width="1" />
           </svg>
-          <span>{{ copied ? '已复制' : '复制' }}</span>
+          <span>{{ copyFailed ? '复制失败' : (copied ? '已复制' : '复制') }}</span>
         </button>
       </div>
-      <div class="greeting-text">{{ job.greeting }}</div>
+      <textarea
+        class="greeting-edit"
+        v-model="job.greeting"
+        rows="3"
+        :placeholder="job.status === 'review_only' ? '低于投递线未生成招呼语——可自行填写后勾选发送' : ''"
+      ></textarea>
     </div>
   </article>
 </template>
@@ -134,12 +147,11 @@ function copyGreeting(text) {
 .loc { font-size: 12px; color: var(--text-4); }
 
 .salary-pill {
-  display: flex; align-items: baseline; gap: 1px;
+  display: flex; align-items: center;
   background: var(--salary-bg); border-radius: 7px;
   padding: 3px 8px; height: 22px;
 }
-.salary-num { font-family: var(--font-mono); font-weight: 600; font-size: 12.5px; color: var(--indigo-dark); }
-.salary-unit { font-family: var(--font-mono); font-weight: 500; font-size: 11px; color: var(--indigo); }
+.salary-text { font-family: var(--font-mono); font-weight: 600; font-size: 11.5px; color: var(--indigo-dark); white-space: nowrap; }
 
 .city-tag {
   display: flex; align-items: center; gap: 4px;
@@ -176,6 +188,19 @@ function copyGreeting(text) {
 }
 .copy-btn:hover { border-color: var(--indigo-border); color: var(--indigo); }
 .greeting-text { font-size: 12.5px; color: var(--text-2); line-height: 20px; }
+.greeting-edit {
+  width: 100%; box-sizing: border-box; min-height: 62px;
+  border: 1px solid transparent; border-radius: 8px;
+  background: transparent; resize: vertical; outline: none;
+  font-size: 12.5px; color: var(--text-2); line-height: 20px; font-family: inherit;
+  padding: 4px 6px;
+}
+.greeting-edit:focus { border-color: var(--indigo-border); color: var(--text-1); }
+.default-badge {
+  font-size: 10px; font-weight: 500; color: var(--amber);
+  background: var(--amber-soft); border-radius: 5px; padding: 2px 7px;
+  margin-right: auto;
+}
 
 /* 选中复选框 */
 .check-cell {

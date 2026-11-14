@@ -21,28 +21,32 @@ class CityConfig(BaseModel):
 
 
 class TierConfig(BaseModel):
+    """展示分层阈值：high / medium；低于投递线的岗位不再分层（UI 折叠区）。
+
+    旧版的 count / max_score 是早期规则评分系统的死配置，2026-11-14 审计删除
+    （_assign_tier 只读 min_score；pydantic 忽略旧配置文件里的多余键，兼容无损）。
+    """
     min_score: int
-    count: int
-    max_score: Optional[int] = None  # high tier has no upper bound
 
 
-class MatchingCriteria(BaseModel):
-    skill_overlap_weight: int = 50
-    experience_relevance: int = 30
-    qualification_match: int = 20
-    cross_industry_bonus: bool = True
-    cross_industry_bonus_value: int = 5
+class VectorPrefilterConfig(BaseModel):
+    """TF-IDF 向量粗筛（vectordb.py）。min_score=0 表示不过滤，仅排序。"""
+    enabled: bool = True
+    min_score: float = 0.0
 
 
 class MatchingConfig(BaseModel):
-    criteria: MatchingCriteria
     tiers: dict[str, TierConfig]
     pending: dict[str, int]
+    # 投递线：低于此分数的岗位进「低于投递线」折叠区（不自动生成招呼语、不占发送额度）
+    min_apply_score: int = 40
+    vector_prefilter: VectorPrefilterConfig = VectorPrefilterConfig()
 
 
 class FakeJobDetectionConfig(BaseModel):
+    """虚假招聘甄别：公司名黑名单 regex 前置（省 LLM 调用）；
+    JD 内容判断由 DeepSeek（is_fake_job）单轨承担，关键词 regex 已删（2026-11-14 审计）。"""
     enabled: bool = True
-    keywords: list[str] = []
     company_name_patterns: list[str] = []
 
 
@@ -62,13 +66,20 @@ class PersonalInfoConfig(BaseModel):
 class SafetyConfig(BaseModel):
     min_delay: int = 3
     max_delay: int = 8
+    # 发送招呼语间隔（秒）—— 对平台可见的真实动作，需要远大于内部评分间隔
+    send_delay_min: int = 45
+    send_delay_max: int = 120
+    # 每日发送上限（按 applied_jobs.json 里当天 status=sent 的记录计数）
+    daily_send_cap: int = 25
+    # 允许发送的时间窗口，如 "09:00-20:00"；留空表示不限制
+    active_hours: str = ""
     captcha_handling: str = "pause_notify"
     headless: bool = False
 
 
 class WebUIConfig(BaseModel):
     host: str = "127.0.0.1"
-    port: int = 5000
+    port: int = 5001  # macOS AirPlay 接收器占用 5000
     auto_open: bool = True
 
 
@@ -80,7 +91,7 @@ class AppConfig(BaseModel):
     matching: MatchingConfig
     fake_job_detection: FakeJobDetectionConfig
     personal_info: PersonalInfoConfig
-    application: dict[str, str]
+    application: dict[str, Any]
     safety: SafetyConfig
     web_ui: WebUIConfig
 
@@ -92,12 +103,60 @@ _project_root: Optional[Path] = None
 
 
 def get_project_root() -> Path:
-    """获取项目根目录（config.yaml 所在目录）"""
+    """获取项目根目录（config.yaml 所在目录）。
+
+    打包发布形态（pyinstaller）下 __file__ 位于打包目录内部，
+    由 launcher 通过 ORCHESTRA_ROOT 指向可执行文件所在的真实目录。
+    """
     global _project_root
     if _project_root is None:
-        # 从当前文件向上找两级：backend/config_loader.py → orchestra/
-        _project_root = Path(__file__).resolve().parent.parent
+        root = os.environ.get("ORCHESTRA_ROOT")
+        _project_root = Path(root).resolve() if root else Path(__file__).resolve().parent.parent
     return _project_root
+
+
+def _load_user_overrides(raw: dict) -> None:
+    """合并设置界面写入的用户级配置（data/user_settings.yaml）。
+
+    只覆盖 search.cities / search.primary_keywords，其余仍以 config.yaml 为准；
+    config.yaml 本体不被改写（保留注释），用户设置可随时删除该文件恢复默认。
+    """
+    path = get_project_root() / "data" / "user_settings.yaml"
+    if not path.exists():
+        return
+    try:
+        overrides = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        print(f"⚠ user_settings.yaml 解析失败，忽略用户覆盖: {e}")
+        return
+    search = overrides.get("search")
+    if isinstance(search, dict):
+        raw.setdefault("search", {})
+        for key in ("cities", "primary_keywords"):
+            if key in search:
+                raw["search"][key] = search[key]
+
+
+def get_user_flag(name: str) -> bool:
+    """读取 data/user_settings.yaml 里的顶层布尔标记（如 wizard_done）。
+
+    与 _load_user_overrides 的 search 覆盖互不影响；文件损坏按 False 处理。
+    """
+    path = get_project_root() / "data" / "user_settings.yaml"
+    if not path.exists():
+        return False
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return bool(data.get(name, False))
+    except Exception as e:
+        print(f"⚠ user_settings.yaml 读取失败（{name}）: {e}")
+        return False
+
+
+def reload_config() -> None:
+    """设置保存后调用：下次 get_config() 重新读取（含用户覆盖）"""
+    global _config
+    _config = None
 
 
 def _load_raw_config() -> dict:
@@ -145,6 +204,7 @@ def get_config() -> AppConfig:
     if _config is None:
         _load_env()
         raw = _load_raw_config()
+        _load_user_overrides(raw)
 
         # 合并 .env 中的敏感信息到 personal_info
         raw_personal = raw.get("personal_info", {})
@@ -152,14 +212,12 @@ def get_config() -> AppConfig:
         raw_personal["phone"] = os.getenv("PHONE", raw_personal.get("phone", ""))
         raw_personal["email"] = os.getenv("EMAIL", raw_personal.get("email", ""))
 
-        # 构建 MatchingConfig
+        # 构建 MatchingConfig（criteria/count/max_score 死配置已删，见 TierConfig 注释）
         matching_raw = raw.get("matching", {})
-        criteria = MatchingCriteria(**matching_raw.get("criteria", {}))
         tiers_raw = matching_raw.get("tiers", {})
         tiers = {
-            "high": TierConfig(**tiers_raw.get("high", {"min_score": 80, "count": 5})),
-            "medium": TierConfig(**tiers_raw.get("medium", {"min_score": 60, "max_score": 79, "count": 7})),
-            "try": TierConfig(**tiers_raw.get("try", {"min_score": 40, "max_score": 59, "count": 8})),
+            "high": TierConfig(**tiers_raw.get("high", {"min_score": 80})),
+            "medium": TierConfig(**tiers_raw.get("medium", {"min_score": 60})),
         }
         pending = matching_raw.get("pending", {"max_count": 5})
 
@@ -167,7 +225,12 @@ def get_config() -> AppConfig:
             platform=raw.get("platform", {}),
             resume=raw.get("resume", {}),
             search=raw.get("search", {}),
-            matching=MatchingConfig(criteria=criteria, tiers=tiers, pending=pending),
+            matching=MatchingConfig(
+                tiers=tiers,
+                pending=pending,
+                min_apply_score=matching_raw.get("min_apply_score", 40),
+                vector_prefilter=VectorPrefilterConfig(**matching_raw.get("vector_prefilter", {})),
+            ),
             fake_job_detection=FakeJobDetectionConfig(**raw.get("fake_job_detection", {})),
             personal_info=PersonalInfoConfig(**raw_personal),
             application=raw.get("application", {}),

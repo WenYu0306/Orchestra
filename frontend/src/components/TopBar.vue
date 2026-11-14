@@ -9,7 +9,7 @@ const pill = computed(() => {
     case 'running': return { cls: 'running', text: `运行中 · 已匹配 ${props.matched} 个` }
     case 'captcha': return { cls: 'captcha', text: '遇到验证码 · 等待处理' }
     case 'done': return { cls: 'done', text: `已完成 · 共匹配 ${props.matched} 个` }
-    case 'error': return { cls: 'error', text: '出错 · 请查看日志' }
+    case 'error': return { cls: 'error', text: '出错了 · 详见下方提示' }
     default: return { cls: 'idle', text: '就绪 · 等待启动' }
   }
 })

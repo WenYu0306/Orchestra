@@ -12,7 +12,7 @@ graph TB
         JobCard["JobCard<br/>职位卡片 + 复选框 + 招呼语"]
     end
 
-    subgraph 后端["⚙️ 后端 (FastAPI :5000)"]
+    subgraph 后端["⚙️ 后端 (FastAPI :5001)"]
         Main["main.py<br/>REST API + SSE入口"]
 
         subgraph API层["API 端点"]
@@ -56,7 +56,7 @@ graph TB
     end
 
     %% 前端 → 后端
-    Browser -->|"Vite proxy /api → :5000"| Main
+    Browser -->|"Vite proxy /api → :5001"| Main
     Browser --> App
     App --> TopBar
     App --> ProgressBand

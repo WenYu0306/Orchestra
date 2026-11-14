@@ -4,8 +4,11 @@
 
 import json
 import re
+import logging
 import httpx
 from .config_loader import get_api_key, get_llm_base_url
+
+_log = logging.getLogger("search_gen")
 
 _shared_client = None
 
@@ -73,8 +76,9 @@ async def generate(resume_text: str) -> list[dict]:
         r.raise_for_status()
         content = r.json()["choices"][0]["message"]["content"] or ""
         return _parse_response(content)
-    except Exception:
+    except Exception as e:
         # 降级：使用默认搜索词
+        _log.warning("动态搜索词生成失败，使用默认关键词: %s", e)
         return [
             {"direction": "AI应用开发", "keywords": ["AI应用开发"], "priority": 1,
              "rationale": "默认搜索方向"},

@@ -27,38 +27,30 @@ search:
 
 # ============ 匹配与分层 ============
 matching:
-  criteria:
-    skill_overlap_weight: 50
-    experience_relevance: 30
-    qualification_match: 20
-    cross_industry_bonus: true
-    cross_industry_bonus_value: 5
+  # 低于此分数的岗位只进待审区：不自动生成招呼语、不占用发送额度，卡片上可自行编辑招呼语后手动选发
+  min_apply_score: 60
 
+  # TF-IDF 向量粗筛。min_score 建议保持 0（粗筛在每词 30 条的规模下没有省钱价值，
+  # 反而会把措辞不同的好岗位在 DeepSeek 评分之前丢掉）
+  vector_prefilter:
+    enabled: true
+    min_score: 0
+
+  # 展示分层阈值（80+ 优先投递 / 60+ 值得投）。
+  # 旧版 criteria 权重与每层 count 上限是死配置，已删——匹配判断由 DeepSeek 提示词承担
   tiers:
     high:
       min_score: 80
-      count: 5
     medium:
       min_score: 60
-      max_score: 79
-      count: 7
-    try:
-      min_score: 40
-      max_score: 59
-      count: 8
 
   pending:
     max_count: 5
 
 # ============ 虚假招聘甄别 ============
+# 公司名黑名单（评分前拦截，省 LLM 调用）；JD 内容的虚假判断由 DeepSeek 单轨承担
 fake_job_detection:
   enabled: true
-  keywords:
-    - "零基础转行"
-    - "包培训"
-    - "先培训后上岗"
-    - "包就业"
-    - "免费培训"
   company_name_patterns:
     - "科技教育"
     - "IT培训"
@@ -84,16 +76,26 @@ application:
   greeting: "auto_generate"
   applied_log_path: "./data/applied_jobs.json"
   pending_log_path: "./data/pending_jobs.json"
+  # applied_jobs.json 保留的最大记录数（去重依赖历史记录，不要设太小）
+  max_records: 2000
 
 # ============ 安全与速度 ============
 safety:
+  # 内部动作（翻页/评分）间隔
   min_delay: 3
   max_delay: 8
+  # 真实发送招呼语的间隔（秒）—— 间隔太短是账号被风控的最强信号
+  send_delay_min: 45
+  send_delay_max: 120
+  # 每日发送上限（跨运行累计，按当天 status=sent 记录数计）
+  daily_send_cap: 25
+  # 只允许在该时间窗口内发送，如 "09:00-20:00"；留空不限制
+  active_hours: ""
   captcha_handling: "pause_notify"
   headless: false
 
 # ============ Web 界面 ============
 web_ui:
   host: "127.0.0.1"
-  port: 5000
+  port: 5001          # macOS AirPlay 接收器占用 5000，后端固定 5001
   auto_open: false

@@ -1,0 +1,2 @@
+# 开发/测试专用依赖（生产部署只需 backend/requirements.txt）
+pytest>=8.0

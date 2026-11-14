@@ -43,7 +43,7 @@ cp .env.example .env   # 填入 DEEPSEEK_API_KEY
 
 ```bash
 # 终端 1
-.venv/bin/python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 5000
+.venv/bin/python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 5001
 # 终端 2
 cd frontend && npm run dev
 ```

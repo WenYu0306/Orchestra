@@ -55,11 +55,16 @@ matching:
 safety:
   min_delay: 5        # 生产环境加大延迟
   max_delay: 12
+  # 真实发送招呼语的间隔（秒）与每日上限 —— 生产环境务必保留
+  send_delay_min: 45
+  send_delay_max: 120
+  daily_send_cap: 25
+  active_hours: "09:00-20:00"
   captcha_handling: "pause_notify"
   headless: false
 
 # ============ Web UI ============
 web_ui:
   host: "127.0.0.1"
-  port: 5000
+  port: 5001          # macOS AirPlay 接收器占用 5000
   auto_open: false     # 生产环境不自动打开浏览器

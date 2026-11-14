@@ -1,7 +1,13 @@
 <script setup>
 import { computed } from 'vue'
 
-const props = defineProps({ jobs: Array })
+const props = defineProps({ jobs: Array, status: String })
+
+const totalSub = computed(() => {
+  if (props.status === 'running') return '抓取中…'
+  if (['done', 'completed'].includes(props.status)) return `已完成 · 共 ${props.jobs.length} 条`
+  return '等待启动'
+})
 
 const stats = computed(() => {
   const high = props.jobs.filter(j => j.tier === 'high').length
@@ -12,8 +18,8 @@ const stats = computed(() => {
   return [
     { key: 'high', label: '高分职位', value: high, sub: `≥ 80 分 · 占比 ${pct(high)}%`, color: 'var(--indigo)' },
     { key: 'mid', label: '中分职位', value: mid, sub: `60 – 79 分 · 占比 ${pct(mid)}%`, color: 'var(--blue)' },
-    { key: 'low', label: '可试职位', value: low, sub: `40 – 59 分 · 占比 ${pct(low)}%`, color: 'var(--amber)' },
-    { key: 'total', label: '候选总数', value: total, sub: '仍在抓取 · 已翻 3 / 8 页', color: 'var(--text-1)' },
+    { key: 'low', label: '低于投递线', value: low, sub: `< 60 分 · 占比 ${pct(low)}%`, color: 'var(--amber)' },
+    { key: 'total', label: '候选总数', value: total, sub: totalSub.value, color: 'var(--text-1)' },
   ]
 })
 </script>

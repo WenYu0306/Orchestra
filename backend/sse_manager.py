@@ -6,11 +6,14 @@ SSE 事件管理器 —— 管理 Server-Sent Events 连接池和事件推送。
 
 import asyncio
 import json
+import logging
 import time
 from enum import Enum
 from typing import Any, Optional
 
 from starlette.responses import StreamingResponse
+
+_log = logging.getLogger("sse")
 
 
 class SSEEventType(str, Enum):
@@ -79,7 +82,7 @@ class SSEManager:
             except asyncio.CancelledError:
                 pass
             except Exception:
-                pass
+                _log.debug("SSE event_generator 异常退出", exc_info=True)
             finally:
                 try:
                     self._queues.remove(queue)

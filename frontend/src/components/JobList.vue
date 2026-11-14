@@ -12,8 +12,15 @@ const sorts = [
   { key: 'time', label: '按时间' },
 ]
 
+// 分层 Tab：可投递（≥投递线，默认） / 低于投递线（review_only，默认折叠不渲染——
+// 110 卡全量渲染 + 毛玻璃在老机器上会卡，折叠同时是性能修复）
+const activeTab = ref('sendable')
+const sendableJobs = computed(() => props.jobs.filter(j => j.status !== 'review_only'))
+const belowJobs = computed(() => props.jobs.filter(j => j.status === 'review_only'))
+const tabJobs = computed(() => activeTab.value === 'sendable' ? sendableJobs.value : belowJobs.value)
+
 const sortedJobs = computed(() => {
-  const list = [...props.jobs]
+  const list = [...tabJobs.value]
   if (sort.value === 'score') {
     list.sort((a, b) => (b.score || 0) - (a.score || 0))
   } else if (sort.value === 'salary') {
@@ -52,9 +59,27 @@ const sortedJobs = computed(() => {
       </div>
     </div>
 
+    <!-- 分层 Tab -->
+    <div v-if="props.jobs.length" class="tabs">
+      <button class="tab" :class="{ active: activeTab === 'sendable' }"
+              @click="activeTab = 'sendable'">可投递 · {{ sendableJobs.length }}</button>
+      <button class="tab below" :class="{ active: activeTab === 'below' }"
+              @click="activeTab = 'below'">低于投递线 · {{ belowJobs.length }}</button>
+    </div>
+
+    <!-- 空状态引导（替代纯"等待启动"） -->
+    <div v-if="!loading && !props.jobs.length" class="empty-state">
+      <div class="empty-emoji">🎯</div>
+      <div class="empty-title">还没有匹配的岗位</div>
+      <div class="empty-hint">点右上角「开始」，AI 会按你的简历自动搜索、逐个打分、写好招呼语</div>
+    </div>
+    <div v-else-if="!loading && !sortedJobs.length" class="empty-state slim">
+      <div class="empty-hint">这个分类暂无岗位</div>
+    </div>
+
     <!-- 卡片列表 -->
     <TransitionGroup name="card-in" tag="div" class="cards">
-      <JobCard v-for="(job, idx) in sortedJobs" :key="job.securityId || job.encryptJobId || idx"
+      <JobCard v-for="job in sortedJobs" :key="job.uid || (job.company + job.title)"
         :job="job" />
     </TransitionGroup>
 
@@ -121,6 +146,39 @@ const sortedJobs = computed(() => {
 }
 
 .cards { display: flex; flex-direction: column; gap: 14px; }
+
+/* 分层 Tab */
+.tabs { display: flex; gap: 8px; }
+.tab {
+  height: 30px; padding: 0 14px;
+  background: #F0F1F5; border-radius: 999px;
+  font-size: 12px; font-weight: 500; color: var(--text-2);
+  transition: all .2s;
+}
+.tab.active {
+  background: var(--indigo-soft, rgba(99,102,241,0.1));
+  color: var(--indigo, #6366f1);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--indigo-border, rgba(99,102,241,0.35));
+}
+.tab.below.active {
+  background: rgba(245, 158, 11, 0.1);
+  color: #b45309;
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 48px 20px;
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 20px;
+}
+.empty-state.slim { padding: 20px; }
+.empty-emoji { font-size: 32px; }
+.empty-title { font-size: 15px; font-weight: 600; color: var(--text-1); }
+.empty-hint { font-size: 12.5px; color: var(--text-2); }
 
 /* 入场：淡入上浮 */
 .card-in-enter-active { transition: all .5s cubic-bezier(.2, .8, .2, 1); }

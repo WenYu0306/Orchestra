@@ -5,18 +5,29 @@
 import json
 import re
 import asyncio
+import logging
 import httpx
 from .config_loader import get_api_key, get_llm_base_url
 
+_log = logging.getLogger("matcher")
+
 _shared_client = None
 
-MATCH_PROMPT_TEMPLATE = """你是一位专业的招聘匹配分析师。对比以下简历和职位描述，给出匹配评分和分析。
+MATCH_PROMPT_TEMPLATE = """你是一位严苛但公道的招聘匹配评估师。对比简历与职位描述，输出 0-100 匹配分。
 
-## 评分标准（总分 100）
-- 技术栈重合度：50%
-- 项目经验相关性：30%
-- 基本条件满足度：20%
-- 跨行业友好加分：额外 +5 分
+## 评分锚点（必须对号入座，禁止把所有岗位都打进 60-75 的中间地带）
+- 90-100：岗位就是为这类候选人准备的——技术方向、核心技术栈、项目类型三项全命中
+- 75-89：方向正确，核心技术栈大半命中，有 1-2 处缺口但不影响上岗
+- 60-74：方向沾边、技术栈命中约一半，或方向不同但有明确可迁移的项目证据
+- 40-59：方向不符或核心技术明显缺失，仅零散关键词重合
+- 0-39：完全不对口
+
+## 评分构成
+- 技术方向与核心技术栈命中（权重最高），以简历中的真实证据为准
+- 项目经验相关性：简历里是否有同类或可迁移的完整项目
+- 基本条件：仅当 JD 写明硬性门槛（学历/年限/证书）且简历明确不满足时才扣分；
+  不确定的不要凭空扣分，禁止因候选人非科班背景而统一压分
+- 跨行业成功迁移证据（如独立交付过完整项目）最多 +5
 
 ## 虚假招聘识别
 JD含培训/转行/包就业等培训机构特征 → 标记虚假
@@ -24,7 +35,7 @@ JD含培训/转行/包就业等培训机构特征 → 标记虚假
 
 ## 输出要求
 只返回一个 JSON 对象：
-{{"score": <0-100整数>, "reason": "<匹配理由>", "confidence": "<high|medium|low>", "is_fake_job": <true|false>, "cross_industry_friendly": <true|false>}}
+{{"score": <0-100整数>, "reason": "<一句话：命中了什么/缺什么>", "confidence": "<high|medium|low>", "is_fake_job": <true|false>, "cross_industry_friendly": <true|false>}}
 
 ## 候选人简历
 {resume_text}
@@ -68,10 +79,28 @@ async def match(resume_text: str, jd_text: str) -> dict:
     )
     try:
         return await asyncio.wait_for(_call_ds(prompt, timeout=8.0), timeout=10.0)
-    except Exception:
+    except httpx.HTTPStatusError as e:
+        # 401/402 是买家最常见的两类故障——人话原因直传 UI（评分熔断时展示）
+        if e.response.status_code == 401:
+            reason = "匹配评分失败：DeepSeek Key 无效——请在设置里重新填写（sk- 开头完整复制）"
+        elif e.response.status_code == 402:
+            reason = "匹配评分失败：DeepSeek 余额不足——请到 platform.deepseek.com 充值后重试"
+        else:
+            reason = f"匹配评分失败：DeepSeek 返回 HTTP {e.response.status_code}"
+        # DeepSeek 故障会让这批岗位全部按 0 分被丢弃，必须留痕
+        _log.warning("%s | JD前80字: %s", reason, jd_text[:80])
         return {
             "score": 0,
-            "reason": "匹配评分失败",
+            "reason": reason,
+            "confidence": "low",
+            "is_fake_job": False,
+            "cross_industry_friendly": False,
+        }
+    except Exception as e:
+        _log.warning("DeepSeek 匹配评分失败（岗位将被跳过）: %s | JD前80字: %s", e, jd_text[:80])
+        return {
+            "score": 0,
+            "reason": "匹配评分失败：网络异常，请检查网络后重试",
             "confidence": "low",
             "is_fake_job": False,
             "cross_industry_friendly": False,

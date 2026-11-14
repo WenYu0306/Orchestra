@@ -47,11 +47,8 @@ class TfIdfVectorizer:
         n = len(documents)
         # 统计文档频率
         df: Counter[str] = Counter()
-        tokenized_docs: list[list[str]] = []
         for doc in documents:
-            tokens = list(set(_tokenize(doc)))
-            tokenized_docs.append(tokens)
-            df.update(tokens)
+            df.update(set(_tokenize(doc)))
 
         # 取 top max_features 词
         top = [w for w, _ in df.most_common(self._max_features)]

@@ -1,0 +1,80 @@
+name: Release 打包
+
+# 手动触发（Actions 页面 Run workflow）或推 tag（如 v1.3.0）触发；
+# 普通 push 不打包，避免浪费。
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pyinstaller pytest
+          # 锁定浏览器自动化核心版本 = 本地已验证的版本（nodriver 小版本间 API 变动频繁）
+          pip install "nodriver==0.50.3"
+
+      - name: Run tests
+        run: pytest tests/ backend/tests/ -q
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package release
+        run: python package.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Orchestra-${{ matrix.os }}
+          path: dist-release/*.zip
+          retention-days: 30
+
+  # 仅打 tag 时执行：把两个平台的 zip 挂到 GitHub Release（永久下载链接）
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist-release
+
+      - name: Attach zips to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" --generate-notes --title "Orchestra ${{ github.ref_name }}" || true
+          gh release upload "${{ github.ref_name }}" dist-release/*.zip --clobber
