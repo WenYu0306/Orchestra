@@ -76,5 +76,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" --generate-notes --title "Orchestra ${{ github.ref_name }}" || true
-          gh release upload "${{ github.ref_name }}" dist-release/*.zip --clobber
+          # 本 job 无 checkout（只有 download-artifact），gh 必须用 -R 显式指定仓库，
+          # 否则 "failed to run git: not a git repository"（v1.4.0 实测）
+          gh release create "${{ github.ref_name }}" -R "${{ github.repository }}" --generate-notes --title "Orchestra ${{ github.ref_name }}" || true
+          gh release upload "${{ github.ref_name }}" -R "${{ github.repository }}" dist-release/*.zip --clobber
