@@ -15,8 +15,9 @@ sse-starlette>=1.8.0
 PyYAML>=6.0
 python-dotenv>=1.0.0
 
-# Resume parsing
-PyMuPDF>=1.23.0
+# Resume parsing — pdfminer.six 纯 Python（PyMuPDF 功能等价但带 79MB 二进制，
+# 实测同一份简历提取质量一致：字符集重合 461/462）
+pdfminer.six>=20231228
 
 # HTTP client (for API calls to DeepSeek / Qwen VL)
 httpx>=0.26.0

@@ -5,7 +5,7 @@ Agent — 单阶段: 搜→标签评分→全局排序→top 20 详情重评→�
 import asyncio, json, logging, os, random, re, sys, time
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-import fitz, httpx, nodriver as uc
+import httpx, nodriver as uc
 
 _agent_shared_client = None
 from .config_loader import get_config, get_api_key, get_llm_base_url, get_project_root
@@ -1061,8 +1061,9 @@ class AgentRunner:
         path = get_project_root()/get_config().resume.get("pdf_path","my_resume.pdf")
         if not path.exists():
             raise FileNotFoundError(f"简历文件不存在: {path}（请在前端上传，或修改 config.yaml resume.pdf_path）")
-        with fitz.open(str(path)) as doc:
-            text = "\n".join(p.get_text() for p in doc)
+        # pdfminer.six（纯 Python，~5MB）替代 PyMuPDF（79MB+）：简历只读一次，速度无所谓
+        from pdfminer.high_level import extract_text
+        text = extract_text(str(path))
         if len(text.strip()) < 50:
             raise ValueError(f"简历解析出的文本过短({len(text.strip())}字)，请检查 PDF: {path}")
         return text
