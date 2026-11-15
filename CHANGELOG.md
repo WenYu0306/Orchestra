@@ -2,6 +2,14 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。
 
+## [1.6.1] - 2026-11-15
+
+Windows 真机验收（v1.6.0 报告）的启动脚本修复。
+
+### 修复
+- `启动.bat` 引号包 exe 路径：`NoDefaultCurrentDirectoryInExePath=1` 环境下（CI/服务宿主/部分终端）裸文件名 100% 崩
+- exe 正常退出不再 `pause`：根治"关窗后 cmd 常驻"，仅异常退出停住供排障
+
 ## [1.6.0] - 2026-11-15
 
 UI 全面重构：Element Plus 组件库 + BOSS 式主从布局 + cuelume 交互音效。
