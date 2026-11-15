@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from pydantic import BaseModel
 
-from .agent_runner import agent_runner, BOSS_CODE
+from .agent_runner import agent_runner, BOSS_CODE, find_chrome
 from .config_loader import (get_config, get_project_root, get_llm_base_url,
                             get_user_flag, reload_config)
 from .record_manager import record_manager
@@ -68,8 +68,6 @@ async def lifespan(app: FastAPI):
         print(f"  - Web UI: {config.web_ui.host}:{config.web_ui.port}")
 
         # 启动健康检查
-        import os, shutil
-        from pathlib import Path
         dsk = os.getenv("DEEPSEEK_API_KEY", "")
         if not dsk or dsk.startswith("your_"):
             print("⚠ DEEPSEEK_API_KEY 未设置，请编辑 .env 文件")
@@ -78,7 +76,7 @@ async def lifespan(app: FastAPI):
             resume_path = get_project_root() / resume_path
         if not resume_path.exists():
             print(f"⚠ 简历未找到: {resume_path}")
-        if not shutil.which("google-chrome") and not shutil.which("Google Chrome") and not Path("/Applications/Google Chrome.app").exists():
+        if find_chrome() is None:
             print("⚠ 未检测到 Google Chrome")
     except Exception as e:
         print(f"⚠ 配置加载警告: {e}")
@@ -490,9 +488,9 @@ async def root():
 @app.get("/api/health",
          summary="健康检查", description="返回服务运行状态")
 async def health():
-    import os
     status = "ok"
-    checks = {"api_key": bool(os.getenv("DEEPSEEK_API_KEY","")),
+    dsk = os.getenv("DEEPSEEK_API_KEY", "")
+    checks = {"api_key": bool(dsk) and not dsk.startswith("your_"),
               "chrome_alive": agent_runner._browser is not None,
               "tab_alive": agent_runner._tab is not None}
     if not checks["api_key"]:

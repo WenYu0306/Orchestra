@@ -38,6 +38,34 @@ def behavior_log(entry: dict) -> None:
         _log.debug("behavior log 写入失败", exc_info=True)
 
 
+def find_chrome() -> str | None:
+    """多路径探测 Chrome 可执行文件，找到返回路径、没有返回 None。
+
+    启动横幅（main.py）与运行前检测共用这一处判断，杜绝两套逻辑漂移。
+    Windows 用户级安装默认在 %LOCALAPPDATA%（无管理员权限装 Chrome 的用户
+    全在这里），只查 Program Files 会漏一大半。
+    """
+    if os.name == "nt":
+        candidates = []
+        local = os.getenv("LOCALAPPDATA")
+        if local:
+            candidates.append(Path(local) / "Google" / "Chrome" / "Application" / "chrome.exe")
+        candidates += [
+            Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+            Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        ]
+        for c in candidates:
+            if c.exists():
+                return str(c)
+        return None
+    if os.name == "posix":
+        mac = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+        if mac.exists():
+            return str(mac)
+        return "google-chrome-stable"  # Linux：交给 PATH
+    return None
+
+
 @dataclass
 class ScoredJob:
     """一个已评分的职位候选。全程用属性名访问，不再用 9 元组索引。"""
@@ -314,30 +342,10 @@ class AgentRunner:
         return keywords
 
     def _find_chrome(self) -> str:
-        """多路径探测 Chrome 可执行文件。
-
-        Windows 用户级安装默认在 %LOCALAPPDATA%（无管理员权限装 Chrome 的用户全在这里），
-        只查 Program Files 会漏一大半（docs/商业化方案.md §5 上架前必修）。
-        """
-        if os.name == "nt":
-            candidates = []
-            local = os.getenv("LOCALAPPDATA")
-            if local:
-                candidates.append(Path(local) / "Google" / "Chrome" / "Application" / "chrome.exe")
-            candidates += [
-                Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-                Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
-            ]
-            for c in candidates:
-                if c.exists():
-                    return str(c)
+        path = find_chrome()
+        if path is None:
             raise RuntimeError("未找到 Google Chrome，请先安装：google.cn/chrome")
-        if os.name == "posix":
-            mac = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-            if mac.exists():
-                return str(mac)
-            return "google-chrome-stable"  # Linux：交给 PATH
-        raise RuntimeError(f"不支持的操作系统: {os.name}")
+        return path
 
     async def _launch_and_login(self) -> bool:
         """启动 Chrome + 扫码登录 + Cookie 验证。返回 True 表示成功。"""

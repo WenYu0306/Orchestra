@@ -182,12 +182,6 @@ def _load_env(env_path: Optional[Path] = None) -> None:
 
     if env_path.exists():
         load_dotenv(env_path)
-    else:
-        # 尝试 .env.example 作为 fallback（开发环境）
-        example_path = get_project_root() / ".env.example"
-        if example_path.exists():
-            load_dotenv(example_path)
-        # 也尝试从系统环境变量读取
 
 
 def get_config() -> AppConfig:

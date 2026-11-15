@@ -2,6 +2,15 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。
 
+## [1.6.2] - 2026-11-15
+
+Windows v1.6.1 复验报告新问题 A/B 的修复（均为 v1.6.0 起的遗留，非 1.6.1 回归）。
+
+### 修复
+- **启动横幅对 Windows 100% 误报「未检测到 Google Chrome」**：lifespan 自检的三个条件全是 macOS/Linux 专用（PATH 查 Linux 命令名 + `/Applications` 路径），Windows 上恒为真。Chrome 探测抽为模块级 `find_chrome()`，启动横幅与运行前检测共用一处判断，杜绝两套逻辑漂移
+- **`.env` 缺失时不再静默加载 `.env.example`**：发布包没有 `.env`，占位符 `your_deepseek_api_key_here` 被当真加载 → `/api/health` 误报 `api_key: true / status: ok`，掩盖真实状态（真实任务不受影响——`get_api_key()` 本有 `your_` 检查）。删 fallback，health 的 key 检查同步排除 `your_` 前缀
+- 附注（验收方法）：`data/logs/behavior.jsonl` 仅在真实发送招呼语时写入——未发送而未见该文件属正常，非缺陷
+
 ## [1.6.1] - 2026-11-15
 
 Windows 真机验收（v1.6.0 报告）的启动脚本修复。
