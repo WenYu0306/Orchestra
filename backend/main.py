@@ -102,6 +102,16 @@ async def lifespan(app: FastAPI):
     # 退出时始终关闭 Agent Chrome——孤儿 Chrome 会锁住 data/chrome-profile，
     # 下次启动登录态读取失败（桌面壳"关窗即退净"的最后一环）
     await agent_runner.close_browser()
+    # 埋点：本次会话"评了没发"的岗位——评分误报候选信号
+    try:
+        from .agent_runner import behavior_log
+        unsent = [{"company": r.get("company"), "position": r.get("position"),
+                   "score": r.get("score")}
+                  for r in record_manager.get_all_records() if r.get("status") == "dry_run"]
+        if unsent:
+            behavior_log({"event": "session_skip", "unsent": unsent})
+    except Exception as e:
+        print(f"⚠ 埋点写入失败: {e}")
     # 关闭共享 httpx 客户端（此前四个模块各养一个，已收敛到 backend/llm.py）
     from . import llm as _llm
     await _llm.aclose()

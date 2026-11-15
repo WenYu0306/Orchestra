@@ -22,6 +22,22 @@ from dataclasses import dataclass, field
 _GREET_BTNS = ["立即沟通","发起沟通","沟通一下","聊一聊","联系Ta","开始沟通"]
 
 
+def behavior_log(entry: dict) -> None:
+    """行为埋点：买家对 AI 输出的真实决策（改写/跳过/发送），落 behavior.jsonl。
+
+    供下一版评分与招呼语优化做回归数据；只写本机 data/logs，不上传。
+    """
+    try:
+        bl = _log_dir / "behavior.jsonl"
+        if bl.exists() and bl.stat().st_size > 1_000_000:
+            bl.replace(bl.with_suffix(".jsonl.old"))
+        with open(bl, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%d %H:%M:%S"), **entry},
+                               ensure_ascii=False) + "\n")
+    except Exception:
+        _log.debug("behavior log 写入失败", exc_info=True)
+
+
 @dataclass
 class ScoredJob:
     """一个已评分的职位候选。全程用属性名访问，不再用 9 元组索引。"""
@@ -740,6 +756,14 @@ class AgentRunner:
                         continue
                     record_manager.mark_sent(company, encId, "sent" if ok else "send_failed")
                     fail_streak = 0 if ok else fail_streak + 1
+                    # 埋点：招呼语被买家改写 = AI 生成质量信号
+                    orig = record_manager.find_record(company, encId)
+                    if orig:
+                        edited = greeting != orig.get("greeting", "")
+                        behavior_log({"event": "greeting_decision", "company": company,
+                            "score": orig.get("score"), "ok": ok, "edited": edited,
+                            "original": orig.get("greeting", "") if edited else None,
+                            "sent_text": greeting})
                 except Exception as e:
                     results.append({"company":company,"ok":False,"reason":str(e)})
                     record_manager.mark_sent(company, encId, "send_failed")

@@ -156,6 +156,17 @@ class RecordManager:
 
         return record
 
+    def find_record(self, company: str, encrypt_job_id: str):
+        """取最近一条匹配记录（埋点：招呼语修改 diff 的原文来源）"""
+        with self._lock:
+            for record in reversed(self._applied):
+                if record.get("company") != company:
+                    continue
+                if encrypt_job_id and record.get("encrypt_job_id") != encrypt_job_id:
+                    continue
+                return dict(record)
+        return None
+
     def mark_sent(self, company: str, encrypt_job_id: str, status: str) -> bool:
         """按 公司+encryptJobId 把 dry_run 记录更新为 sent / send_failed。
 
