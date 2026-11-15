@@ -88,8 +88,8 @@ async def lifespan(app: FastAPI):
                 webbrowser.open(f"http://127.0.0.1:{config.web_ui.port}")
             else:
                 webbrowser.open("http://localhost:5173")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠ 自动打开浏览器失败: {e}")
 
     yield
 

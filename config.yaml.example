@@ -53,19 +53,6 @@ fake_job_detection:
     - "职业技能"
     - "实训基地"
 
-# ============ 个人信息（非敏感项） ============
-personal_info:
-  name: ""
-  phone: ""
-  email: ""
-  education: ""
-  school: ""
-  major: ""
-  work_status: ""
-  work_years: ""
-  current_company: ""
-  expected_salary: ""
-
 # ============ 投递设置 ============
 application:
   button_strategy: "apply_first"

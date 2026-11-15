@@ -5,26 +5,28 @@
 ```
 Orchestra（JobHunter）
 ├── backend/
-│   ├── agent_runner.py      Agent 主循环 + 所有平台共享的评分/分层
-│   ├── platform_adapter.py  PlatformAdapter 抽象接口（5个方法）
-│   ├── adapters/            各平台适配器（zhilian.py 等）
+│   ├── agent_runner.py      Agent 主循环 + 评分/分层/发送调度（BOSS 平台逻辑当前内联于此，
+│   │                        平台化拆分方案见架构评估：抽 PlatformAdapter 四方法，编排层不动）
 │   ├── matcher.py           DeepSeek 简历-JD 匹配打分
-│   ├── greeting_generator.py 招呼语生成
+│   ├── greeting_generator.py 招呼语生成（DEFAULT_GREETING 全链路降级文案唯一定义处）
 │   ├── search_generator.py  搜索关键词动态生成
-│   ├── vectordb.py          TF-IDF + 余弦相似度向量检索
 │   ├── validator.py         城市/公司/薪资 三道校验栅栏
-│   ├── record_manager.py    投递记录持久化
+│   ├── record_manager.py    投递记录持久化（applied_jobs 历史即 sent 去重源）
 │   ├── sse_manager.py       SSE 实时推送管理
-│   ├── config_loader.py     配置加载（config.yaml + .env）
+│   ├── llm.py               DeepSeek httpx 共享客户端（唯一出口）
+│   ├── config_loader.py     配置加载（config.yaml 默认 + data/user_settings.yaml 覆盖 + .env）
 │   └── main.py              FastAPI 入口 + REST API + SSE
-├── frontend/                Vue 3 + Vite 前端
-├── tools/                   开发工具/测试脚本
-├── data/                    运行时数据（日志/缓存）
-├── docs/                    文档（LANGGRAPH.md / DEPLOY.md）
-├── Dockerfile.* + docker-compose.yml  容器化部署
+├── frontend/                Vue 3 + Vite 前端（Element Plus，发布时由后端直接托管 dist）
+├── tools/                   开发工具/测试脚本（含 md2docx.py 手册转换，不随包分发）
+├── data/                    运行时数据（日志/埋点/投递记录/Chrome profile）
+├── docs/                    文档（使用手册 + 商业化内参）
+├── package.py               发布打包（PyInstaller onedir + fail-closed 敏感扫描）
 ├── config.yaml              主配置文件
-└── start.sh                 一键启动脚本
+└── start.sh                 一键启动脚本（开发形态）
 ```
+
+（vectordb.py 已于 1.5.0 删除；platform_adapter.py / adapters/ 仅存在于
+feat/multi-platform 分支——master 的平台逻辑尚未抽出，见 agent_runner 注释。）
 
 ## 分支
 

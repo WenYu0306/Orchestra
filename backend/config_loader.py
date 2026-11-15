@@ -43,19 +43,6 @@ class FakeJobDetectionConfig(BaseModel):
     company_name_patterns: list[str] = []
 
 
-class PersonalInfoConfig(BaseModel):
-    name: str = ""
-    phone: str = ""
-    email: str = ""
-    education: str = ""
-    school: str = ""
-    major: str = ""
-    work_status: str = ""
-    work_years: str = ""
-    current_company: str = ""
-    expected_salary: str = ""
-
-
 class SafetyConfig(BaseModel):
     min_delay: int = 3
     max_delay: int = 8
@@ -82,7 +69,6 @@ class AppConfig(BaseModel):
     search: dict[str, Any]
     matching: MatchingConfig
     fake_job_detection: FakeJobDetectionConfig
-    personal_info: PersonalInfoConfig
     application: dict[str, Any]
     safety: SafetyConfig
     web_ui: WebUIConfig
@@ -192,12 +178,6 @@ def get_config() -> AppConfig:
         raw = _load_raw_config()
         _load_user_overrides(raw)
 
-        # 合并 .env 中的敏感信息到 personal_info
-        raw_personal = raw.get("personal_info", {})
-        raw_personal["name"] = os.getenv("NAME", raw_personal.get("name", ""))
-        raw_personal["phone"] = os.getenv("PHONE", raw_personal.get("phone", ""))
-        raw_personal["email"] = os.getenv("EMAIL", raw_personal.get("email", ""))
-
         # 构建 MatchingConfig（criteria/count/max_score 死配置已删，见 TierConfig 注释）
         matching_raw = raw.get("matching", {})
         tiers_raw = matching_raw.get("tiers", {})
@@ -217,7 +197,6 @@ def get_config() -> AppConfig:
                 min_apply_score=matching_raw.get("min_apply_score", 40),
             ),
             fake_job_detection=FakeJobDetectionConfig(**raw.get("fake_job_detection", {})),
-            personal_info=PersonalInfoConfig(**raw_personal),
             application=raw.get("application", {}),
             safety=SafetyConfig(**raw.get("safety", {})),
             web_ui=WebUIConfig(**raw.get("web_ui", {})),

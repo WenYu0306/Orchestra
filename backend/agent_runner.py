@@ -9,7 +9,7 @@ import nodriver as uc
 
 from .config_loader import get_config, get_api_key, get_llm_base_url, get_project_root
 from .city_codes import CITY_CODE as BOSS_CODE
-from .greeting_generator import generate as gen_greeting
+from .greeting_generator import DEFAULT_GREETING, generate as gen_greeting
 from .matcher import match as ds_match
 from .record_manager import record_manager
 from .sse_manager import sse_manager, AppStatus
@@ -614,7 +614,7 @@ class AgentRunner:
             return text, False
         except Exception as e:
             _log.warning(f"招呼语生成失败，使用默认文案: {e}")
-            return "您好，我对这个职位很感兴趣，希望能进一步了解。", True
+            return DEFAULT_GREETING, True
 
     async def _emit_results(self, applied: int):
         await sse_manager.emit_complete({

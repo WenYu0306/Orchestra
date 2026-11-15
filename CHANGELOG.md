@@ -2,6 +2,23 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。
 
+## [1.6.5] - 2026-11-16
+
+架构评估落地：解析器金样本测试 + 死配置清理（买家用 1-2 个月才会暴露的隐患提前关闸）。
+
+### 新增
+- **解析器金样本回归测试（19 例）**：DeepSeek 输出解析（markdown 包裹/废话包裹/字符串分数/垃圾输入）、薪资翻译（日薪×21.75、万/年薪/K/裸区间、「2-3万」误读回归）、发送时间窗（含畸形配置 fail-open 现状固化）——三个曾分别出过事故的「翻译官」从此有回归护栏
+
+### 清理
+- 移除 personal_info 死配置：config.yaml.example 模板段、PersonalInfoConfig 模型与 .env 合并逻辑——全库无任何消费方（招呼语由 LLM 生成，不读此配置）
+- 默认招呼语统一为单一定义（DEFAULT_GREETING）：此前两处降级文案长短不一，同一失败场景发给招聘方的话术不一致
+- CLAUDE.md 结构描述与 master 对齐（vectordb 已删、platform_adapter/adapters 在 feat 分支）
+- 测试 __main__ 死引用修复（引用了两个已重命名的测试函数，直接运行会 NameError）
+- lifespan 的 `except Exception: pass` 补日志（自家规约 #2 落实）
+
+### 明确不做（架构评估定论）
+- 不修 applied_jobs.json 的 2000 条截断（业主判定足够）、不做 SQLite 迁移、不拆 agent_runner、平台切分待智联接入决策
+
 ## [1.6.4] - 2026-11-16
 
 Windows 买家路径专项验收（模拟浏览器下载全流程）发现的阻断级修复。
