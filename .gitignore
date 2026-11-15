@@ -50,6 +50,7 @@ notes/
 tools/
 # 商业化内参（定价策略/运营口径）——公开仓库不外发，仅存本地
 docs/商业化方案.md
+docs/商品页文案.md
 
 # ============ Playwright ============
 playwright-report/
