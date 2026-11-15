@@ -2,6 +2,14 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。
 
+## [1.6.3] - 2026-11-15
+
+买家首启路径实测（模拟浏览器下载隔离标记）发现的手册指引修正。
+
+### 修复
+- **macOS 首次启动指引失效**：原指引 `xattr -d` 只清除单个文件的隔离标记，照做后 `启动.command` 自身仍带标记、双击仍被 Gatekeeper 拦截。改为 `xattr -cr` 目录级清除 + 拖拽填路径的小白操作；补充说明用夸克客户端下载的文件一般不触发此拦截
+- 附带验证：打包的 Python 运行时（`_internal/Python.framework`）在无配置环境启动正常，`/api/health` 正确返回 degraded——买家机器**无需安装 Python**
+
 ## [1.6.2] - 2026-11-15
 
 Windows v1.6.1 复验报告新问题 A/B 的修复（均为 v1.6.0 起的遗留，非 1.6.1 回归）。
