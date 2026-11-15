@@ -104,8 +104,12 @@ def assemble(ver: str) -> Path:
     (app / "启动.command").write_text(
         '#!/bin/bash\ncd "$(dirname "$0")"\n./Orchestra\n', encoding="utf-8")
     (app / "启动.command").chmod(0o755)
+    # 引号包 exe 路径：NoDefaultCurrentDirectoryInExePath=1 环境下 cmd 不搜索
+    # 当前目录，裸文件名 100% 崩（v1.6.0 Windows 验收发现）；条件 pause：仅异常
+    # 退出时停住供排障，正常退出不留常驻 cmd（兑现"关窗即完全退出"）
     (app / "启动.bat").write_bytes(
-        "@echo off\r\nchcp 65001 >nul\r\ncd /d %~dp0\r\nOrchestra.exe\r\npause\r\n".encode("utf-8"))
+        ("@echo off\r\nchcp 65001 >nul\r\ncd /d %~dp0\r\n"
+         '"%~dp0Orchestra.exe"\r\nif errorlevel 1 pause\r\n').encode("utf-8"))
     return app
 
 
