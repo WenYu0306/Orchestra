@@ -75,7 +75,7 @@ def build_backend() -> None:
         cwd=ROOT, check=True)
 
 
-def assemble(ver: str) -> Path:
+def assemble(ver: str, tag: str) -> Path:
     app = RELEASE_DIR / f"Orchestra-{ver}" / "Orchestra"
     if app.parent.exists():
         shutil.rmtree(app.parent)
@@ -98,7 +98,10 @@ def assemble(ver: str) -> Path:
     (app / "config.yaml").write_text(cfg, encoding="utf-8")
 
     shutil.copy2(ROOT / ".env.example", app / ".env.example")
-    shutil.copy2(ROOT / "docs" / "使用手册.md", app / "使用手册.md")
+
+    # 使用手册：Windows 用 docx（双击可开），mac 用 md（Quick Look 可预览）
+    manual_name = "使用手册.docx" if tag == "windows" else "使用手册.md"
+    shutil.copy2(ROOT / "docs" / manual_name, app / manual_name)
 
     # 双击入口（两个平台都放，与可执行文件平台匹配的那个生效）
     (app / "启动.command").write_text(
@@ -107,8 +110,13 @@ def assemble(ver: str) -> Path:
     # 引号包 exe 路径：NoDefaultCurrentDirectoryInExePath=1 环境下 cmd 不搜索
     # 当前目录，裸文件名 100% 崩（v1.6.0 Windows 验收发现）；条件 pause：仅异常
     # 退出时停住供排障，正常退出不留常驻 cmd（兑现"关窗即完全退出"）
+    # PowerShell Unblock-File：浏览器下载的 zip 经资源管理器解压会把 MOTW 传播到
+    # 全部文件（v1.6.3 买家路径验收实测 301/301），.NET CLR 拒绝加载带 MOTW 的
+    # pythonnet 程序集 → 双击即崩。bat 首步自动清标记，用户点完「运行」无感知
     (app / "启动.bat").write_bytes(
         ("@echo off\r\nchcp 65001 >nul\r\ncd /d %~dp0\r\n"
+         "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+         "\"Get-ChildItem -LiteralPath '%~dp0.' -Recurse | Unblock-File\" 2>nul\r\n"
          '"%~dp0Orchestra.exe"\r\nif errorlevel 1 pause\r\n').encode("utf-8"))
     return app
 
@@ -133,8 +141,8 @@ def main() -> None:
     ver = get_version()
     build_frontend()
     build_backend()
-    app = assemble(ver)
     tag = {"darwin": "macos", "win32": "windows"}.get(sys.platform, sys.platform)
+    app = assemble(ver, tag)
     zip_path = RELEASE_DIR / f"Orchestra-{ver}-{tag}.zip"
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     n = zip_and_scan(app, zip_path)
